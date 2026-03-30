@@ -1,6 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   useGetSubjects,
+  useGetSubject,
   useCreateSubject,
   useDeleteSubject,
   useStartSubject,
@@ -15,6 +16,26 @@ import {
 // Wrappers to add automatic cache invalidation
 export function useStudySubjects() {
   return useGetSubjects();
+}
+
+export function useStudySubject(id: number | undefined) {
+  return useGetSubject(id!, { query: { enabled: !!id } });
+}
+
+export function useStudyUpdateSubject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: unknown }) => {
+      const res = await fetch(`/api/subjects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("فشل التعديل");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSubjectsQueryKey() }),
+  });
 }
 
 export function useStudyCreateSubject() {

@@ -29,6 +29,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/add" component={AddSubject} />
+        <Route path="/edit/:id" component={AddSubject} />
         <Route path="/postponed" component={Postponed} />
         <Route component={NotFound} />
       </Switch>

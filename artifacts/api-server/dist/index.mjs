@@ -56211,6 +56211,43 @@ router2.delete("/subjects/:id", async (req, res) => {
   await db.delete(subjectsTable).where(eq(subjectsTable.id, id));
   res.status(204).send();
 });
+var updateSubjectSchema = createSubjectSchema.partial();
+router2.patch("/subjects/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const existing = await getSubjectWithLessons(id);
+  if (!existing) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const body = updateSubjectSchema.parse(req.body);
+  const { lessons, ...subjectData } = body;
+  await db.update(subjectsTable).set({
+    ...subjectData.name !== void 0 && { name: subjectData.name },
+    ...subjectData.date !== void 0 && { date: subjectData.date },
+    ...subjectData.timeMode !== void 0 && { timeMode: subjectData.timeMode },
+    ...subjectData.startTime !== void 0 && { startTime: subjectData.startTime ?? null },
+    ...subjectData.endTime !== void 0 && { endTime: subjectData.endTime ?? null },
+    ...subjectData.durationMinutes !== void 0 && { durationMinutes: subjectData.durationMinutes ?? null },
+    ...subjectData.description !== void 0 && { description: subjectData.description ?? null },
+    ...subjectData.distributeTime !== void 0 && { distributeTime: subjectData.distributeTime }
+  }).where(eq(subjectsTable.id, id));
+  if (lessons !== void 0) {
+    await db.delete(lessonsTable).where(eq(lessonsTable.subjectId, id));
+    if (lessons.length > 0) {
+      await db.insert(lessonsTable).values(
+        lessons.map((l, idx) => ({
+          subjectId: id,
+          name: l.name,
+          allocatedMinutes: l.allocatedMinutes ?? null,
+          completed: false,
+          order: idx
+        }))
+      );
+    }
+  }
+  const updated = await getSubjectWithLessons(id);
+  res.json(updated);
+});
 router2.post("/subjects/:id/start", async (req, res) => {
   const id = parseInt(req.params.id);
   await db.update(subjectsTable).set({ status: "active" }).where(eq(subjectsTable.id, id));

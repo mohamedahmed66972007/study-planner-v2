@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Clock, Check, MoreVertical, Trash2, BookOpen, Timer } from "lucide-react";
+import { CheckCircle2, Clock, Check, MoreVertical, Trash2, BookOpen, Timer, Pencil, ChevronDown } from "lucide-react";
+import { useLocation } from "wouter";
 import {
   useStudySubjects,
   useStudyStartSubject,
@@ -41,8 +42,11 @@ function fmtCountdown(mins: number): string {
 export default function Home() {
   const { data: subjects, isLoading } = useStudySubjects();
   const applyTheme = useApplyTheme();
+  const [showCompleted, setShowCompleted] = useState(false);
 
-  const pendingOrActive = (Array.isArray(subjects) ? subjects : []).filter((s) => s.status !== "completed");
+  const allSubjects = Array.isArray(subjects) ? subjects : [];
+  const pendingOrActive = allSubjects.filter((s) => s.status !== "completed");
+  const completedSubjects = allSubjects.filter((s) => s.status === "completed");
   const sortedSubjects = [...pendingOrActive].sort((a, b) => {
     if (a.status === "active" && b.status !== "active") return -1;
     if (b.status === "active" && a.status !== "active") return 1;
@@ -67,7 +71,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="p-5">
+    <div className="p-5 pb-28">
       <header className="mb-7 flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-gradient mb-1">مرحباً بك!</h1>
@@ -83,7 +87,7 @@ export default function Home() {
             <div key={i} className="h-32 rounded-3xl bg-secondary/30 animate-pulse" />
           ))}
         </div>
-      ) : sortedSubjects.length === 0 ? (
+      ) : sortedSubjects.length === 0 && completedSubjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center opacity-70">
           <div className="w-24 h-24 rounded-full bg-secondary/50 flex items-center justify-center mb-6">
             <CheckCircle2 className="w-10 h-10 text-muted-foreground" />
@@ -93,11 +97,50 @@ export default function Home() {
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Active / Pending subjects */}
           <AnimatePresence mode="popLayout">
             {sortedSubjects.map((subject) => (
               <SubjectCard key={subject.id} subject={subject} onActivate={applyTheme} />
             ))}
           </AnimatePresence>
+
+          {/* Completed subjects section */}
+          {completedSubjects.length > 0 && (
+            <div className="mt-2">
+              <button
+                onClick={() => setShowCompleted(!showCompleted)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-sm font-bold text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  <span>مكتملة ({completedSubjects.length})</span>
+                </div>
+                <motion.div animate={{ rotate: showCompleted ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                  <ChevronDown className="w-4 h-4" />
+                </motion.div>
+              </button>
+
+              <AnimatePresence>
+                {showCompleted && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-3 pt-3">
+                      <AnimatePresence mode="popLayout">
+                        {completedSubjects.map((subject) => (
+                          <CompletedSubjectCard key={subject.id} subject={subject} />
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -118,6 +161,7 @@ function SubjectCard({
   const startMutation = useStudyStartSubject();
   const completeMutation = useStudyCompleteSubject();
   const deleteMutation = useStudyDeleteSubject();
+  const [, setLocation] = useLocation();
   const autoStartedRef = useRef(false);
   const autoCompleteRef = useRef(false);
   const autoCompleteByTimerRef = useRef(false);
@@ -230,8 +274,18 @@ function SubjectCard({
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                className="absolute left-0 top-full mt-1 bg-popover border border-white/10 rounded-xl shadow-xl z-20 overflow-hidden min-w-[120px]"
+                className="absolute left-0 top-full mt-1 bg-popover border border-white/10 rounded-xl shadow-xl z-20 overflow-hidden min-w-[130px]"
               >
+                <button
+                  onClick={() => {
+                    setShowOptions(false);
+                    setLocation(`/edit/${subject.id}`);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors border-b border-white/5"
+                >
+                  <Pencil className="w-4 h-4" />
+                  تعديل
+                </button>
                 <button
                   onClick={() => {
                     if (confirm("هل أنت متأكد من حذف هذه المادة؟")) {
@@ -242,7 +296,7 @@ function SubjectCard({
                   className="w-full flex items-center gap-2 px-4 py-3 text-sm text-destructive hover:bg-white/5 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
-                  حذف المادة
+                  حذف
                 </button>
               </motion.div>
             )}
@@ -460,5 +514,57 @@ function LessonRow({
         )
       ) : null}
     </motion.button>
+  );
+}
+
+// ── completed card ─────────────────────────────────────────────────────────────
+
+function CompletedSubjectCard({ subject }: { subject: Subject }) {
+  const deleteMutation = useStudyDeleteSubject();
+  const [, setLocation] = useLocation();
+  const lessons = subject.lessons || [];
+  const completedCount = lessons.filter((l) => l.completed).length;
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="glass-panel rounded-2xl p-4 border-green-500/20 bg-green-500/5 relative overflow-hidden"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-green-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-bold text-sm truncate">{subject.name}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {subject.date} · {completedCount}/{lessons.length} درس
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setLocation(`/edit/${subject.id}`)}
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => {
+              if (confirm("هل أنت متأكد من حذف هذه المادة؟")) {
+                deleteMutation.mutate({ id: subject.id });
+              }
+            }}
+            disabled={deleteMutation.isPending}
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </motion.div>
   );
 }

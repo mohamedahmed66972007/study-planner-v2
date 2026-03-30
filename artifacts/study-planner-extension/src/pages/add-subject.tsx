@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -17,7 +17,7 @@ import {
   ChevronDown,
   Check
 } from "lucide-react";
-import { useStudyCreateSubject } from "@/hooks/use-study";
+import { useStudyCreateSubject, useStudyUpdateSubject, useStudySubject } from "@/hooks/use-study";
 import { calculateTotalMinutes, cn } from "@/lib/utils";
 import { useSubjectTheme, SUBJECT_THEMES } from "@/hooks/use-subject-theme";
 
@@ -371,8 +371,15 @@ function DatePickerRow({ value, onChange }: { value: string; onChange: (v: strin
 // ─── Main Form ───────────────────────────────────────────────────────────────
 export default function AddSubject() {
   const [, setLocation] = useLocation();
+  const params = useParams<{ id?: string }>();
+  const editId = params?.id ? parseInt(params.id) : undefined;
+  const isEditing = !!editId;
+
   const createMutation = useStudyCreateSubject();
+  const updateMutation = useStudyUpdateSubject();
+  const { data: existingSubject } = useStudySubject(editId);
   const [totalAvailableMinutes, setTotalAvailableMinutes] = useState(0);
+  const [prefilled, setPrefilled] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -389,6 +396,33 @@ export default function AddSubject() {
       lessons: [{ name: "", allocatedMinutes: null }],
     },
   });
+
+  // Pre-fill form when editing an existing subject
+  useEffect(() => {
+    if (!isEditing || !existingSubject || prefilled) return;
+    setPrefilled(true);
+
+    const s = existingSubject;
+    let dh = 1, dm = 0, sh = 8, sm = 0, eh = 9, em = 0;
+    if (s.timeMode === "duration" && s.durationMinutes) {
+      dh = Math.floor(s.durationMinutes / 60);
+      dm = s.durationMinutes % 60;
+    }
+    if (s.timeMode === "fixed") {
+      if (s.startTime) { const [hh, mm] = s.startTime.split(":").map(Number); sh = hh; sm = mm; }
+      if (s.endTime) { const [hh, mm] = s.endTime.split(":").map(Number); eh = hh; em = mm; }
+    }
+    form.reset({
+      name: s.name as FormValues["name"],
+      date: s.date,
+      timeMode: s.timeMode as "fixed" | "duration",
+      startHour: sh, startMinute: sm,
+      endHour: eh, endMinute: em,
+      durationHours: dh, durationMinutes: dm,
+      distributeTime: s.distributeTime,
+      lessons: (s.lessons || []).map((l) => ({ name: l.name, allocatedMinutes: l.allocatedMinutes ?? null })),
+    });
+  }, [existingSubject, isEditing, prefilled]);
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "lessons" });
 
@@ -467,14 +501,23 @@ export default function AddSubject() {
       })),
     };
 
-    createMutation.mutate(
-      { data: payload as any },
-      { onSuccess: () => setLocation("/") }
-    );
+    if (isEditing && editId) {
+      updateMutation.mutate(
+        { id: editId, data: payload },
+        { onSuccess: () => setLocation("/") }
+      );
+    } else {
+      createMutation.mutate(
+        { data: payload as any },
+        { onSuccess: () => setLocation("/") }
+      );
+    }
   };
 
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
   return (
-    <div className="flex flex-col h-full bg-background absolute inset-0 z-50 overflow-y-auto no-scrollbar pb-10">
+    <div className="flex flex-col h-full bg-background absolute inset-0 z-50 overflow-y-auto no-scrollbar pb-28">
       {/* Header */}
       <header className="sticky top-0 z-20 glass-panel border-b border-white/10 px-4 py-4 flex items-center gap-4">
         <button
@@ -483,7 +526,7 @@ export default function AddSubject() {
         >
           <ChevronRight className="w-6 h-6" />
         </button>
-        <h1 className="text-xl font-bold">إضافة مادة</h1>
+        <h1 className="text-xl font-bold">{isEditing ? "تعديل المادة" : "إضافة مادة"}</h1>
       </header>
 
       <form onSubmit={form.handleSubmit(onSubmit)} className="p-5 flex flex-col gap-7">
@@ -753,10 +796,10 @@ export default function AddSubject() {
         {/* ─── Submit ─── */}
         <button
           type="submit"
-          disabled={createMutation.isPending}
+          disabled={isSaving}
           className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-accent font-bold text-lg transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-primary/30 disabled:opacity-50"
         >
-          {createMutation.isPending ? "جاري الحفظ..." : "إضافة المادة"}
+          {isSaving ? "جاري الحفظ..." : isEditing ? "حفظ التعديلات" : "إضافة المادة"}
         </button>
       </form>
     </div>
