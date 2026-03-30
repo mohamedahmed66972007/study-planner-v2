@@ -1,1 +1,1 @@
-# study-planner-v2
+# study-planner
