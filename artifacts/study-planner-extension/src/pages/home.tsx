@@ -16,7 +16,8 @@ import { useTimer, useLessonTimer, type LessonTimerState } from "@/hooks/use-tim
 import { formatTimeMMSS, cn } from "@/lib/utils";
 import type { Subject, Lesson } from "@/lib/storage";
 import { useApplyTheme } from "@/hooks/use-subject-theme";
-import { ShareImportButtons, useImportFromUrl, ImportPreviewModal } from "@/components/share-import-dialog";
+import { ShareImportButtons, ImportPreviewModal } from "@/components/share-import-dialog";
+import { useImportFromUrl } from "@/hooks/use-import-from-url";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
