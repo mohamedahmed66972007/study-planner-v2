@@ -193,3 +193,67 @@ export function useStudyDeletePostponed() {
     onSuccess: () => qc.invalidateQueries({ queryKey: POSTPONED_QK }),
   });
 }
+
+export function useStudyDeletePostponedGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ ids }: { ids: number[] }) => {
+      savePostponed(getPostponed().filter((p) => !ids.includes(p.id)));
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: POSTPONED_QK }),
+  });
+}
+
+export function useStudyReschedulePostponed() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      subjectName,
+      date,
+      timeMode,
+      startTime,
+      endTime,
+      durationMinutes: durationMins,
+    }: {
+      ids: number[];
+      subjectName: string;
+      date: string;
+      timeMode: "fixed" | "duration";
+      startTime?: string;
+      endTime?: string;
+      durationMinutes?: number;
+    }) => {
+      const postponed = getPostponed();
+      const toReschedule = postponed.filter((p) => ids.includes(p.id));
+      const remaining = postponed.filter((p) => !ids.includes(p.id));
+
+      const base = newId();
+      const newSubject: Subject = {
+        id: base,
+        name: subjectName,
+        date,
+        description: null,
+        timeMode,
+        startTime: startTime || null,
+        endTime: endTime || null,
+        durationMinutes: timeMode === "duration" ? (durationMins ?? 60) : null,
+        distributeTime: false,
+        status: "pending",
+        lessons: toReschedule.map((l, i) => ({
+          id: base + i + 1,
+          name: l.lessonName,
+          completed: false,
+          allocatedMinutes: null,
+        })),
+      };
+
+      saveSubjects([...getSubjects(), newSubject]);
+      savePostponed(remaining);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SUBJECTS_QK });
+      qc.invalidateQueries({ queryKey: POSTPONED_QK });
+    },
+  });
+}

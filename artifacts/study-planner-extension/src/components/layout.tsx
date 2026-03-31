@@ -1,40 +1,13 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode } from "react";
 import { Link, useRoute } from "wouter";
-import { Calendar, Clock, Plus, WifiOff } from "lucide-react";
+import { Calendar, Clock, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStudyPostponed } from "@/hooks/use-study";
 
-function useOfflineStatus() {
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-
-  useEffect(() => {
-    const onOnline = () => setIsOffline(false);
-    const onOffline = () => setIsOffline(true);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    return () => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
-  }, []);
-
-  return isOffline;
-}
-
 export function Layout({ children }: { children: ReactNode }) {
-  const isOffline = useOfflineStatus();
-
   return (
     <div dir="rtl" className="h-dvh w-full flex justify-center bg-black/90 p-0 sm:p-4 md:p-8">
       <div className="w-full max-w-[420px] h-full bg-background/50 backdrop-blur-3xl sm:rounded-[2.5rem] shadow-2xl shadow-primary/10 overflow-hidden flex flex-col relative border-x border-t border-white/5 sm:border-white/10">
-
-        {/* Offline Banner */}
-        {isOffline && (
-          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-yellow-500/20 border-b border-yellow-500/30 text-yellow-300 text-xs font-medium">
-            <WifiOff className="w-3.5 h-3.5 shrink-0" />
-            <span>أنت غير متصل بالإنترنت — البيانات محفوظة مؤقتاً</span>
-          </div>
-        )}
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto no-scrollbar pb-24">

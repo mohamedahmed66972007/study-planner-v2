@@ -37,6 +37,44 @@ function fmtCountdown(mins: number): string {
   return m > 0 ? `${h}س ${m}د` : `${h} ساعة`;
 }
 
+/** Returns a timestamp (ms) for today at HH:MM */
+function parseTimeToday(timeStr: string): number {
+  const [h, m] = timeStr.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+
+/** Timer hook for fixed-time mode: computes from wall-clock endTime */
+function useFixedTimeTimer(startTime: string | null | undefined, endTime: string | null | undefined, isActive: boolean) {
+  const [state, setState] = useState({ secondsLeft: 0, progress: 0 });
+
+  useEffect(() => {
+    if (!isActive || !startTime || !endTime) {
+      setState({ secondsLeft: 0, progress: 0 });
+      return;
+    }
+
+    const startMs = parseTimeToday(startTime);
+    const endMs = parseTimeToday(endTime);
+    const totalSeconds = Math.max(1, (endMs - startMs) / 1000);
+
+    const tick = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, (endMs - now) / 1000);
+      const elapsed = Math.max(0, (now - startMs) / 1000);
+      const progress = Math.min(100, (elapsed / totalSeconds) * 100);
+      setState({ secondsLeft: Math.floor(remaining), progress });
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [startTime, endTime, isActive]);
+
+  return state;
+}
+
 // ── main page ──────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -203,8 +241,10 @@ function SubjectCard({
     }
   }, [isActive, lessons, subject.id]);
 
-  const simpleTimer = useTimer(subject.id, totalDuration, isActive);
-  const lessonTimer = useLessonTimer(subject.id, lessons, totalDuration, isActive);
+  const durationTimer = useTimer(subject.id, totalDuration, isActive && !isFixedTime);
+  const fixedTimer = useFixedTimeTimer(subject.startTime, subject.endTime, isActive && isFixedTime);
+  const simpleTimer = isFixedTime ? fixedTimer : durationTimer;
+  const lessonTimer = useLessonTimer(subject.id, lessons, totalDuration, isActive && !isFixedTime);
 
   // Auto-complete when countdown reaches zero
   useEffect(() => {
