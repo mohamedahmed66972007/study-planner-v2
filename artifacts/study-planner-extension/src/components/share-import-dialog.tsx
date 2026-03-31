@@ -442,7 +442,7 @@ export function ShareImportButtons({ subjects }: ShareImportProps) {
       try {
         await navigator.share({
           title: "مخططي الدراسي - مشاركة الجدول",
-          text: "شاركت معك جدولي الدراسي، اضغط على الرابط لعرضه وحفظه:",
+          text: "",
           url,
         });
       } catch {
