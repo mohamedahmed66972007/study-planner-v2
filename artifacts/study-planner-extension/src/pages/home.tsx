@@ -16,6 +16,7 @@ import { useTimer, useLessonTimer, type LessonTimerState } from "@/hooks/use-tim
 import { formatTimeMMSS, cn } from "@/lib/utils";
 import type { Subject, Lesson } from "@/lib/storage";
 import { useApplyTheme } from "@/hooks/use-subject-theme";
+import { ShareImportButtons, useImportFromUrl, ImportPreviewModal } from "@/components/share-import-dialog";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ export default function Home() {
   const { data: subjects, isLoading } = useStudySubjects();
   const applyTheme = useApplyTheme();
   const [showCompleted, setShowCompleted] = useState(false);
+  const { previewSubjects, clearPreview, saveImported, saving: importSaving } = useImportFromUrl();
 
   const allSubjects = Array.isArray(subjects) ? subjects : [];
   const pendingOrActive = allSubjects.filter((s) => s.status !== "completed");
@@ -118,7 +120,19 @@ export default function Home() {
             {format(new Date(), "EEEE، d MMMM", { locale: ar })}
           </p>
         </div>
+        <ShareImportButtons subjects={allSubjects.filter((s) => s.status !== "completed")} />
       </header>
+
+      <AnimatePresence>
+        {previewSubjects && (
+          <ImportPreviewModal
+            subjects={previewSubjects}
+            onSave={saveImported}
+            onCancel={clearPreview}
+            saving={importSaving}
+          />
+        )}
+      </AnimatePresence>
 
       {isLoading ? (
         <div className="space-y-4">
