@@ -75,5 +75,6 @@
     "workbox-window": "^7.4.0",
     "wouter": "^3.3.5",
     "zod": "catalog:"
-  }
+  },
+  "dependencies": {}
 }
