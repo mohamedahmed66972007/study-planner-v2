@@ -4,25 +4,83 @@ import { Share2, Download, X, BookOpen, Clock, Calendar, CheckCircle2, Check } f
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
-import LZString from "lz-string";
 import type { Subject } from "@/lib/storage";
 import { getSubjects, saveSubjects, newId } from "@/lib/storage";
 
-// ── Encoding helpers ───────────────────────────────────────────────────────────
+// ── Compression helpers (no external deps) ────────────────────────────────────
+
+async function deflateEncode(data: string): Promise<string> {
+  const input = new TextEncoder().encode(data);
+  const cs = new CompressionStream("deflate-raw");
+  const writer = cs.writable.getWriter();
+  writer.write(input);
+  writer.close();
+  const chunks: Uint8Array[] = [];
+  const reader = cs.readable.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  let len = 0;
+  for (const c of chunks) len += c.length;
+  const buf = new Uint8Array(len);
+  let off = 0;
+  for (const c of chunks) { buf.set(c, off); off += c.length; }
+  let binary = "";
+  const CHUNK = 8192;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    binary += String.fromCharCode(...buf.subarray(i, i + CHUNK));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+export async function deflateDecodeOrNull(encoded: string): Promise<string | null> {
+  try {
+    const b64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "==".slice(0, (4 - (b64.length % 4)) % 4);
+    const binary = atob(padded);
+    const buf = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
+    const ds = new DecompressionStream("deflate-raw");
+    const writer = ds.writable.getWriter();
+    writer.write(buf);
+    writer.close();
+    const chunks: Uint8Array[] = [];
+    const reader = ds.readable.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    let len = 0;
+    for (const c of chunks) len += c.length;
+    const out = new Uint8Array(len);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return new TextDecoder().decode(out);
+  } catch {
+    return null;
+  }
+}
+
+// ── Payload types ─────────────────────────────────────────────────────────────
 
 type SchedulePayload = Array<{
-  n: string;       // name
-  d: string;       // date
-  tm: "f" | "du"; // timeMode: f=fixed, du=duration
-  ds?: string;     // description
-  st?: string;     // startTime
-  et?: string;     // endTime
-  dm?: number;     // durationMinutes
-  dt?: 1;          // distributeTime (only stored when true)
-  l?: Array<{ n: string; am?: number }>; // lessons
+  n: string;
+  d: string;
+  tm: "f" | "du";
+  ds?: string;
+  st?: string;
+  et?: string;
+  dm?: number;
+  dt?: 1;
+  l?: Array<{ n: string; am?: number }>;
 }>;
 
-function encodeSchedule(subjects: Subject[]): string {
+// ── Encode ────────────────────────────────────────────────────────────────────
+
+async function encodeSchedule(subjects: Subject[]): Promise<string> {
   const payload: SchedulePayload = subjects.map((s) => {
     const entry: SchedulePayload[number] = {
       n: s.name,
@@ -43,11 +101,12 @@ function encodeSchedule(subjects: Subject[]): string {
     }
     return entry;
   });
-  const json = JSON.stringify(payload);
-  return LZString.compressToEncodedURIComponent(json);
+  return deflateEncode(JSON.stringify(payload));
 }
 
-function parsePayload(json: string): Subject[] | null {
+// ── Decode ────────────────────────────────────────────────────────────────────
+
+export function parseSchedulePayload(json: string): Subject[] | null {
   try {
     const parsed = JSON.parse(json);
     if (!Array.isArray(parsed)) return null;
@@ -77,26 +136,22 @@ function parsePayload(json: string): Subject[] | null {
   }
 }
 
-function decodeSchedule(encoded: string): Subject[] | null {
-  // Try lz-string compressed format first (new)
-  try {
-    const json = LZString.decompressFromEncodedURIComponent(encoded);
-    if (json) {
-      const result = parsePayload(json);
-      if (result) return result;
-    }
-  } catch {}
+export async function decodeSchedule(encoded: string): Promise<Subject[] | null> {
+  // 1) Try new deflate-raw format
+  const deflated = await deflateDecodeOrNull(encoded);
+  if (deflated) {
+    const result = parseSchedulePayload(deflated);
+    if (result && result.length > 0) return result;
+  }
 
-  // Fallback: try old base64 format for backwards compatibility
+  // 2) Fallback: plain base64 JSON (original format before compression)
   try {
     const json = decodeURIComponent(escape(atob(encoded)));
     const parsed = JSON.parse(json) as Array<{
-      name: string;
-      date: string;
+      name: string; date: string;
       description?: string | null;
       timeMode: "fixed" | "duration";
-      startTime?: string | null;
-      endTime?: string | null;
+      startTime?: string | null; endTime?: string | null;
       durationMinutes?: number | null;
       distributeTime: boolean;
       lessons: Array<{ name: string; allocatedMinutes?: number | null }>;
@@ -105,20 +160,15 @@ function decodeSchedule(encoded: string): Subject[] | null {
     return parsed.map((s, si) => {
       const base = newId() + si * 1000;
       return {
-        id: base,
-        name: s.name ?? "",
-        date: s.date ?? "",
+        id: base, name: s.name ?? "", date: s.date ?? "",
         description: s.description ?? null,
         timeMode: s.timeMode === "fixed" ? "fixed" : "duration",
-        startTime: s.startTime ?? null,
-        endTime: s.endTime ?? null,
+        startTime: s.startTime ?? null, endTime: s.endTime ?? null,
         durationMinutes: s.durationMinutes ?? null,
         distributeTime: !!s.distributeTime,
         status: "pending" as const,
         lessons: (s.lessons ?? []).map((l, li) => ({
-          id: base + li + 1,
-          name: l.name ?? "",
-          completed: false,
+          id: base + li + 1, name: l.name ?? "", completed: false,
           allocatedMinutes: l.allocatedMinutes ?? null,
         })),
       };
@@ -128,8 +178,8 @@ function decodeSchedule(encoded: string): Subject[] | null {
   }
 }
 
-function buildShareUrl(subjects: Subject[]): string {
-  const encoded = encodeSchedule(subjects);
+async function buildShareUrl(subjects: Subject[]): Promise<string> {
+  const encoded = await encodeSchedule(subjects);
   const base = window.location.origin + window.location.pathname;
   return `${base}?import=${encoded}`;
 }
@@ -260,24 +310,30 @@ interface ImportDialogProps {
 function ImportDialog({ onClose, onDecoded }: ImportDialogProps) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleImport = () => {
+  const handleImport = async () => {
     setError("");
-    let encoded = url.trim();
+    setLoading(true);
     try {
-      const urlObj = new URL(encoded);
-      const param = urlObj.searchParams.get("import");
-      if (param) encoded = param;
-    } catch {
-      const match = encoded.match(/[?&]import=([^&]+)/);
-      if (match) encoded = match[1];
+      let encoded = url.trim();
+      try {
+        const urlObj = new URL(encoded);
+        const param = urlObj.searchParams.get("import");
+        if (param) encoded = param;
+      } catch {
+        const match = encoded.match(/[?&]import=([^&]+)/);
+        if (match) encoded = match[1];
+      }
+      const decoded = await decodeSchedule(encoded);
+      if (!decoded || decoded.length === 0) {
+        setError("الرابط غير صالح أو لا يحتوي على بيانات");
+        return;
+      }
+      onDecoded(decoded);
+    } finally {
+      setLoading(false);
     }
-    const decoded = decodeSchedule(encoded);
-    if (!decoded || decoded.length === 0) {
-      setError("الرابط غير صالح أو لا يحتوي على بيانات");
-      return;
-    }
-    onDecoded(decoded);
   };
 
   return (
@@ -331,11 +387,11 @@ function ImportDialog({ onClose, onDecoded }: ImportDialogProps) {
           </button>
           <button
             onClick={handleImport}
-            disabled={!url.trim()}
+            disabled={!url.trim() || loading}
             className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-primary to-accent font-bold text-sm flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-primary/25 disabled:opacity-50 disabled:pointer-events-none"
           >
             <Download className="w-4 h-4" />
-            استيراد
+            {loading ? "جاري التحقق..." : "استيراد"}
           </button>
         </div>
       </motion.div>
@@ -364,7 +420,7 @@ function ShareToast({ onHide }: { onHide: () => void }) {
   );
 }
 
-// ── Main exported hook + buttons ──────────────────────────────────────────────
+// ── Share + Import buttons ─────────────────────────────────────────────────────
 
 interface ShareImportProps {
   subjects: Subject[];
@@ -379,8 +435,7 @@ export function ShareImportButtons({ subjects }: ShareImportProps) {
 
   const handleShare = async () => {
     if (subjects.length === 0) return;
-    const url = buildShareUrl(subjects);
-
+    const url = await buildShareUrl(subjects);
     const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 
     if (isMobile && navigator.share) {
@@ -415,8 +470,7 @@ export function ShareImportButtons({ subjects }: ShareImportProps) {
     if (!previewSubjects) return;
     setSaving(true);
     try {
-      const current = getSubjects();
-      saveSubjects([...current, ...previewSubjects]);
+      saveSubjects([...getSubjects(), ...previewSubjects]);
       qc.invalidateQueries({ queryKey: ["subjects"] });
       setPreviewSubjects(null);
       const url = new URL(window.location.href);
@@ -477,4 +531,3 @@ export function ShareImportButtons({ subjects }: ShareImportProps) {
     </>
   );
 }
-
