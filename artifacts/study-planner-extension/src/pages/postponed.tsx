@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { format, parse } from "date-fns";
 import { ar } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
@@ -224,6 +225,7 @@ function RescheduleForm({ group, onClose }: RescheduleFormProps) {
 function PostponedGroupCard({ group }: { group: PostponedGroup }) {
   const [expanded, setExpanded] = useState(true);
   const [rescheduling, setRescheduling] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const deleteMutation = useStudyDeletePostponed();
   const deleteGroupMutation = useStudyDeletePostponedGroup();
 
@@ -232,12 +234,11 @@ function PostponedGroupCard({ group }: { group: PostponedGroup }) {
   };
 
   const handleDeleteGroup = () => {
-    if (confirm(`هل أنت متأكد من حذف جميع دروس "${group.subjectName}"؟`)) {
-      deleteGroupMutation.mutate({ ids: group.lessons.map((l) => l.id) });
-    }
+    setShowDeleteDialog(true);
   };
 
   return (
+    <>
     <motion.div
       layout
       initial={{ opacity: 0, y: 16 }}
@@ -350,6 +351,14 @@ function PostponedGroupCard({ group }: { group: PostponedGroup }) {
         )}
       </AnimatePresence>
     </motion.div>
+    <DeleteConfirmDialog
+      open={showDeleteDialog}
+      onOpenChange={setShowDeleteDialog}
+      title={`حذف دروس ${group.subjectName}`}
+      description={`هل أنت متأكد من حذف جميع دروس "${group.subjectName}"؟ لا يمكن التراجع عن هذا الإجراء.`}
+      onConfirm={() => deleteGroupMutation.mutate({ ids: group.lessons.map((l) => l.id) })}
+    />
+    </>
   );
 }
 

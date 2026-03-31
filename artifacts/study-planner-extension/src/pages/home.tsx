@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, Clock, Check, MoreVertical, Trash2, BookOpen, Timer, Pencil, ChevronDown } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { useLocation } from "wouter";
 import {
   useStudySubjects,
@@ -195,6 +196,7 @@ function SubjectCard({
   onActivate: (name: string | null) => void;
 }) {
   const [showOptions, setShowOptions] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [minsUntilStart, setMinsUntilStart] = useState<number | null>(null);
   const startMutation = useStudyStartSubject();
   const completeMutation = useStudyCompleteSubject();
@@ -262,6 +264,7 @@ function SubjectCard({
   }, [isActive, simpleTimer.secondsLeft, simpleTimer.progress, subject.id]);
 
   return (
+    <>
     <motion.div
       layout
       initial={{ opacity: 0, y: 20 }}
@@ -329,10 +332,8 @@ function SubjectCard({
                 </button>
                 <button
                   onClick={() => {
-                    if (confirm("هل أنت متأكد من حذف هذه المادة؟")) {
-                      deleteMutation.mutate({ id: subject.id });
-                    }
                     setShowOptions(false);
+                    setShowDeleteDialog(true);
                   }}
                   className="w-full flex items-center gap-2 px-4 py-3 text-sm text-destructive hover:bg-white/5 transition-colors"
                 >
@@ -451,6 +452,12 @@ function SubjectCard({
         </AnimatePresence>
       </div>
     </motion.div>
+    <DeleteConfirmDialog
+      open={showDeleteDialog}
+      onOpenChange={setShowDeleteDialog}
+      onConfirm={() => deleteMutation.mutate({ id: subject.id })}
+    />
+    </>
   );
 }
 
@@ -562,11 +569,13 @@ function LessonRow({
 
 function CompletedSubjectCard({ subject }: { subject: Subject }) {
   const deleteMutation = useStudyDeleteSubject();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [, setLocation] = useLocation();
   const lessons = subject.lessons || [];
   const completedCount = lessons.filter((l) => l.completed).length;
 
   return (
+    <>
     <motion.div
       layout
       initial={{ opacity: 0, y: 10 }}
@@ -594,11 +603,7 @@ function CompletedSubjectCard({ subject }: { subject: Subject }) {
             <Pencil className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => {
-              if (confirm("هل أنت متأكد من حذف هذه المادة؟")) {
-                deleteMutation.mutate({ id: subject.id });
-              }
-            }}
+            onClick={() => setShowDeleteDialog(true)}
             disabled={deleteMutation.isPending}
             className="w-8 h-8 flex items-center justify-center rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
           >
@@ -607,5 +612,11 @@ function CompletedSubjectCard({ subject }: { subject: Subject }) {
         </div>
       </div>
     </motion.div>
+    <DeleteConfirmDialog
+      open={showDeleteDialog}
+      onOpenChange={setShowDeleteDialog}
+      onConfirm={() => deleteMutation.mutate({ id: subject.id })}
+    />
+    </>
   );
 }
