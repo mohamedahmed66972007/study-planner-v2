@@ -441,7 +441,7 @@ export function ShareImportButtons({ subjects }: ShareImportProps) {
     if (isMobile && navigator.share) {
       try {
         await navigator.share({
-          title: "مخططي الدراسي - مشاركة الجدول",
+          title: "",
           text: "",
           url,
         });
