@@ -1,34 +1,93 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Share2, Download, X, BookOpen, Clock, Calendar, CheckCircle2, Copy, Check } from "lucide-react";
+import { Share2, Download, X, BookOpen, Clock, Calendar, CheckCircle2, Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
+import LZString from "lz-string";
 import type { Subject } from "@/lib/storage";
 import { getSubjects, saveSubjects, newId } from "@/lib/storage";
 
 // ── Encoding helpers ───────────────────────────────────────────────────────────
 
+type SchedulePayload = Array<{
+  n: string;       // name
+  d: string;       // date
+  tm: "f" | "du"; // timeMode: f=fixed, du=duration
+  ds?: string;     // description
+  st?: string;     // startTime
+  et?: string;     // endTime
+  dm?: number;     // durationMinutes
+  dt?: 1;          // distributeTime (only stored when true)
+  l?: Array<{ n: string; am?: number }>; // lessons
+}>;
+
 function encodeSchedule(subjects: Subject[]): string {
-  const stripped = subjects.map((s) => ({
-    name: s.name,
-    date: s.date,
-    description: s.description,
-    timeMode: s.timeMode,
-    startTime: s.startTime,
-    endTime: s.endTime,
-    durationMinutes: s.durationMinutes,
-    distributeTime: s.distributeTime,
-    lessons: s.lessons.map((l) => ({
-      name: l.name,
-      allocatedMinutes: l.allocatedMinutes,
-    })),
-  }));
-  const json = JSON.stringify(stripped);
-  return btoa(unescape(encodeURIComponent(json)));
+  const payload: SchedulePayload = subjects.map((s) => {
+    const entry: SchedulePayload[number] = {
+      n: s.name,
+      d: s.date,
+      tm: s.timeMode === "fixed" ? "f" : "du",
+    };
+    if (s.description) entry.ds = s.description;
+    if (s.startTime) entry.st = s.startTime;
+    if (s.endTime) entry.et = s.endTime;
+    if (s.durationMinutes) entry.dm = s.durationMinutes;
+    if (s.distributeTime) entry.dt = 1;
+    if (s.lessons.length > 0) {
+      entry.l = s.lessons.map((l) => {
+        const lesson: { n: string; am?: number } = { n: l.name };
+        if (l.allocatedMinutes) lesson.am = l.allocatedMinutes;
+        return lesson;
+      });
+    }
+    return entry;
+  });
+  const json = JSON.stringify(payload);
+  return LZString.compressToEncodedURIComponent(json);
+}
+
+function parsePayload(json: string): Subject[] | null {
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return null;
+    return (parsed as SchedulePayload).map((s, si) => {
+      const base = newId() + si * 1000;
+      return {
+        id: base,
+        name: s.n ?? "",
+        date: s.d ?? "",
+        description: s.ds ?? null,
+        timeMode: s.tm === "f" ? ("fixed" as const) : ("duration" as const),
+        startTime: s.st ?? null,
+        endTime: s.et ?? null,
+        durationMinutes: s.dm ?? null,
+        distributeTime: s.dt === 1,
+        status: "pending" as const,
+        lessons: (s.l ?? []).map((l, li) => ({
+          id: base + li + 1,
+          name: l.n ?? "",
+          completed: false,
+          allocatedMinutes: l.am ?? null,
+        })),
+      };
+    });
+  } catch {
+    return null;
+  }
 }
 
 function decodeSchedule(encoded: string): Subject[] | null {
+  // Try lz-string compressed format first (new)
+  try {
+    const json = LZString.decompressFromEncodedURIComponent(encoded);
+    if (json) {
+      const result = parsePayload(json);
+      if (result) return result;
+    }
+  } catch {}
+
+  // Fallback: try old base64 format for backwards compatibility
   try {
     const json = decodeURIComponent(escape(atob(encoded)));
     const parsed = JSON.parse(json) as Array<{
@@ -419,47 +478,3 @@ export function ShareImportButtons({ subjects }: ShareImportProps) {
   );
 }
 
-// ── URL auto-detect hook ───────────────────────────────────────────────────────
-
-export function useImportFromUrl(): {
-  previewSubjects: Subject[] | null;
-  clearPreview: () => void;
-  saveImported: () => void;
-  saving: boolean;
-} {
-  const qc = useQueryClient();
-  const [previewSubjects, setPreviewSubjects] = useState<Subject[] | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const encoded = params.get("import");
-    if (!encoded) return;
-    const decoded = decodeSchedule(encoded);
-    if (decoded && decoded.length > 0) {
-      setPreviewSubjects(decoded);
-    }
-  }, []);
-
-  const clearPreview = () => {
-    setPreviewSubjects(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("import");
-    window.history.replaceState({}, "", url.toString());
-  };
-
-  const saveImported = () => {
-    if (!previewSubjects) return;
-    setSaving(true);
-    try {
-      const current = getSubjects();
-      saveSubjects([...current, ...previewSubjects]);
-      qc.invalidateQueries({ queryKey: ["subjects"] });
-      clearPreview();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return { previewSubjects, clearPreview, saveImported, saving };
-}
