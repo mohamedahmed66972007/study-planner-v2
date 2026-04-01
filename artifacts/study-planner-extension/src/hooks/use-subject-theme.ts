@@ -94,7 +94,7 @@ function applyTheme(theme: SubjectTheme) {
   root.style.setProperty("--ring", theme.ring);
   root.style.setProperty("--card", theme.background.replace("6%", "12%"));
   root.style.setProperty("--popover", theme.background.replace("6%", "12%"));
-  setThemeColorMeta(theme.background);
+  setThemeColorMeta(theme.primary);
 }
 
 function resetTheme() {
@@ -105,7 +105,7 @@ function resetTheme() {
   root.style.removeProperty("--ring");
   root.style.removeProperty("--card");
   root.style.removeProperty("--popover");
-  setThemeColorMeta(DEFAULT_THEME.background);
+  setThemeColorMeta(DEFAULT_THEME.primary);
 }
 
 export function useSubjectTheme(subjectName: string | null | undefined) {

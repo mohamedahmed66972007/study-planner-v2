@@ -10,7 +10,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-[420px] h-full bg-background/50 backdrop-blur-3xl sm:rounded-[2.5rem] shadow-2xl shadow-primary/10 overflow-hidden flex flex-col relative border-x border-t border-white/5 sm:border-white/10">
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
+        <main className="flex-1 overflow-y-auto no-scrollbar pb-24" style={{ overscrollBehavior: 'none' }}>
           {children}
         </main>
 
