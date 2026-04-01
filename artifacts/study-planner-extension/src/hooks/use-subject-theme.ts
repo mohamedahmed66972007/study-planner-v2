@@ -69,6 +69,23 @@ export function getSubjectTheme(name: string): SubjectTheme {
   return SUBJECT_THEMES[name] ?? DEFAULT_THEME;
 }
 
+function hslToHex(hslStr: string): string {
+  const parts = hslStr.replace(/%/g, "").split(" ").map(Number);
+  const h = parts[0], s = parts[1] / 100, l = parts[2] / 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function setThemeColorMeta(hsl: string) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", hslToHex(hsl));
+}
+
 function applyTheme(theme: SubjectTheme) {
   const root = document.documentElement;
   root.style.setProperty("--primary", theme.primary);
@@ -77,6 +94,7 @@ function applyTheme(theme: SubjectTheme) {
   root.style.setProperty("--ring", theme.ring);
   root.style.setProperty("--card", theme.background.replace("6%", "12%"));
   root.style.setProperty("--popover", theme.background.replace("6%", "12%"));
+  setThemeColorMeta(theme.background);
 }
 
 function resetTheme() {
@@ -87,6 +105,7 @@ function resetTheme() {
   root.style.removeProperty("--ring");
   root.style.removeProperty("--card");
   root.style.removeProperty("--popover");
+  setThemeColorMeta(DEFAULT_THEME.background);
 }
 
 export function useSubjectTheme(subjectName: string | null | undefined) {

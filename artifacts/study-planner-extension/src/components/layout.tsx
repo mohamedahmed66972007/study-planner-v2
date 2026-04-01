@@ -15,7 +15,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </main>
 
         {/* Bottom Navigation */}
-        <nav className="absolute bottom-0 w-full glass-panel border-t border-white/10 rounded-t-3xl sm:rounded-b-[2.5rem] p-4 px-6 flex justify-between items-center z-50">
+        <nav className="absolute bottom-0 w-full glass-panel border-t border-white/10 rounded-t-3xl sm:rounded-b-[2.5rem] px-6 pt-4 flex justify-between items-center z-50" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
           <NavItem href="/" icon={<Calendar className="w-5 h-5" />} label="الجدول" />
           
           <div className="relative -top-8">
