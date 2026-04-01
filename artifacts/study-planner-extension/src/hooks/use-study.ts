@@ -257,3 +257,19 @@ export function useStudyReschedulePostponed() {
     },
   });
 }
+
+export function useStudyResetSubject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: number }) => {
+      localStorage.removeItem(`timer_start_${id}`);
+      localStorage.removeItem(`timer_paused_elapsed_${id}`);
+      saveSubjects(
+        getSubjects().map((s) =>
+          s.id === id ? { ...s, status: "pending" } : s
+        )
+      );
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: SUBJECTS_QK }),
+  });
+}

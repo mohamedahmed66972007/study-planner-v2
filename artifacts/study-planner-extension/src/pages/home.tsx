@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Clock, Check, MoreVertical, Trash2, BookOpen, Timer, Pencil, ChevronDown } from "lucide-react";
+import { CheckCircle2, Clock, Check, MoreVertical, Trash2, BookOpen, Timer, Pencil, ChevronDown, Pause, Play, Square } from "lucide-react";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { useLocation } from "wouter";
 import {
@@ -10,7 +10,8 @@ import {
   useStudyStartSubject,
   useStudyCompleteSubject,
   useStudyToggleLesson,
-  useStudyDeleteSubject
+  useStudyDeleteSubject,
+  useStudyResetSubject,
 } from "@/hooks/use-study";
 import { useTimer, useLessonTimer, type LessonTimerState } from "@/hooks/use-timer";
 import { formatTimeMMSS, cn } from "@/lib/utils";
@@ -216,6 +217,7 @@ function SubjectCard({
   const startMutation = useStudyStartSubject();
   const completeMutation = useStudyCompleteSubject();
   const deleteMutation = useStudyDeleteSubject();
+  const resetMutation = useStudyResetSubject();
   const [, setLocation] = useLocation();
   const autoStartedRef = useRef(false);
   const autoCompleteRef = useRef(false);
@@ -261,12 +263,14 @@ function SubjectCard({
   const durationTimer = useTimer(subject.id, totalDuration, isActive && !isFixedTime);
   const fixedTimer = useFixedTimeTimer(subject.startTime, subject.endTime, isActive && isFixedTime);
   const simpleTimer = isFixedTime ? fixedTimer : durationTimer;
-  const lessonTimer = useLessonTimer(subject.id, lessons, totalDuration, isActive && !isFixedTime);
+  const isDurationPaused = !isFixedTime && durationTimer.isPaused;
+  const lessonTimer = useLessonTimer(subject.id, lessons, totalDuration, isActive && !isFixedTime, isDurationPaused);
 
-  // Auto-complete when countdown reaches zero
+  // Auto-complete when countdown reaches zero (only if not paused)
   useEffect(() => {
     if (
       isActive &&
+      !isDurationPaused &&
       simpleTimer.secondsLeft === 0 &&
       simpleTimer.progress >= 100 &&
       !autoCompleteByTimerRef.current &&
@@ -276,7 +280,7 @@ function SubjectCard({
       completeMutation.mutate({ id: subject.id });
       onActivate(null);
     }
-  }, [isActive, simpleTimer.secondsLeft, simpleTimer.progress, subject.id]);
+  }, [isActive, isDurationPaused, simpleTimer.secondsLeft, simpleTimer.progress, subject.id]);
 
   return (
     <>
@@ -432,7 +436,41 @@ function SubjectCard({
                 simpleTimer={simpleTimer}
                 lessonTimer={lessonTimer}
                 hasDistributed={hasDistributed}
+                isPaused={isDurationPaused}
               />
+
+              {/* Pause / Stop buttons (duration mode only) */}
+              {!isFixedTime && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => isDurationPaused ? durationTimer.resume() : durationTimer.pause()}
+                    className={cn(
+                      "flex-1 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.97]",
+                      isDurationPaused
+                        ? "bg-primary/20 border border-primary/50 text-primary hover:bg-primary/30"
+                        : "bg-white/10 border border-white/15 text-white hover:bg-white/15"
+                    )}
+                  >
+                    {isDurationPaused ? (
+                      <><Play className="w-4 h-4" />استكمال</>
+                    ) : (
+                      <><Pause className="w-4 h-4" />إيقاف مؤقت</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      durationTimer.reset();
+                      resetMutation.mutate({ id: subject.id });
+                      onActivate(null);
+                    }}
+                    disabled={resetMutation.isPending}
+                    className="flex-1 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 bg-destructive/15 border border-destructive/30 text-destructive hover:bg-destructive/25 transition-all active:scale-[0.97]"
+                  >
+                    <Square className="w-4 h-4" />
+                    إيقاف تام
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-2 bg-black/20 rounded-2xl p-3 border border-white/5">
                 <h4 className="text-xs font-bold text-muted-foreground px-2 mb-2">الدروس</h4>
@@ -480,23 +518,34 @@ function SubjectCard({
 
 function ActiveTimerDisplay({
   simpleTimer,
+  isPaused,
 }: {
   subject?: Subject;
   simpleTimer: { secondsLeft: number; progress: number };
   lessonTimer?: LessonTimerState;
   hasDistributed?: boolean;
+  isPaused?: boolean;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-4 bg-black/40 rounded-2xl border border-white/5 relative overflow-hidden">
+    <div className={cn(
+      "flex flex-col items-center justify-center py-4 rounded-2xl border relative overflow-hidden transition-all duration-300",
+      isPaused ? "bg-black/20 border-white/10" : "bg-black/40 border-white/5"
+    )}>
       <div
-        className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-accent transition-all duration-1000 ease-linear"
+        className={cn(
+          "absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-accent transition-all ease-linear",
+          isPaused ? "opacity-40" : "duration-1000"
+        )}
         style={{ width: `${simpleTimer.progress}%` }}
       />
-      <div className="text-4xl font-mono tracking-widest font-light text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
+      <div className={cn(
+        "text-4xl font-mono tracking-widest font-light drop-shadow-[0_0_15px_rgba(255,255,255,0.3)] transition-all duration-300",
+        isPaused ? "text-white/50" : "text-white"
+      )}>
         {formatTimeMMSS(simpleTimer.secondsLeft)}
       </div>
       <div className="text-[10px] text-muted-foreground mt-1 uppercase tracking-widest">
-        الوقت المتبقي
+        {isPaused ? "متوقف مؤقتاً" : "الوقت المتبقي"}
       </div>
     </div>
   );
