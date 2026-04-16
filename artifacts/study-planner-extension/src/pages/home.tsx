@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
@@ -19,6 +19,8 @@ import type { Subject, Lesson } from "@/lib/storage";
 import { useApplyTheme } from "@/hooks/use-subject-theme";
 import { ShareImportButtons, ImportPreviewModal } from "@/components/share-import-dialog";
 import { useImportFromUrl } from "@/hooks/use-import-from-url";
+import { TelegramBellButton, TelegramSetupDialog } from "@/components/telegram-setup-dialog";
+import { getTelegramSettings, sendTelegramMessage, type TelegramSettings } from "@/lib/telegram";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,7 +87,20 @@ export default function Home() {
   const { data: subjects, isLoading } = useStudySubjects();
   const applyTheme = useApplyTheme();
   const [showCompleted, setShowCompleted] = useState(false);
+  const [telegramOpen, setTelegramOpen] = useState(false);
+  const [telegramSettings, setTelegramSettings] = useState<TelegramSettings | null>(() => getTelegramSettings());
   const { previewSubjects, clearPreview, saveImported, saving: importSaving } = useImportFromUrl();
+
+  const sendNotif = useCallback(async (text: string) => {
+    const s = getTelegramSettings();
+    if (!s?.botToken || !s?.chatId) return;
+    await sendTelegramMessage(s.botToken, s.chatId, text);
+  }, []);
+
+  const handleTelegramClose = useCallback(() => {
+    setTelegramOpen(false);
+    setTelegramSettings(getTelegramSettings());
+  }, []);
 
   const allSubjects = Array.isArray(subjects) ? subjects : [];
   const pendingOrActive = allSubjects.filter((s) => s.status !== "completed");
@@ -122,8 +137,13 @@ export default function Home() {
             {format(new Date(), "EEEE، d MMMM", { locale: ar })}
           </p>
         </div>
-        <ShareImportButtons subjects={allSubjects.filter((s) => s.status !== "completed")} />
+        <div className="flex items-center gap-1">
+          <TelegramBellButton onClick={() => setTelegramOpen(true)} />
+          <ShareImportButtons subjects={allSubjects.filter((s) => s.status !== "completed")} />
+        </div>
       </header>
+
+      <TelegramSetupDialog open={telegramOpen} onClose={handleTelegramClose} />
 
       <AnimatePresence>
         {previewSubjects && (
@@ -155,7 +175,13 @@ export default function Home() {
           {/* Active / Pending subjects */}
           <AnimatePresence mode="popLayout">
             {sortedSubjects.map((subject) => (
-              <SubjectCard key={subject.id} subject={subject} onActivate={applyTheme} />
+              <SubjectCard
+                key={subject.id}
+                subject={subject}
+                onActivate={applyTheme}
+                telegramSettings={telegramSettings}
+                sendNotif={sendNotif}
+              />
             ))}
           </AnimatePresence>
 
@@ -206,10 +232,14 @@ export default function Home() {
 
 function SubjectCard({
   subject,
-  onActivate
+  onActivate,
+  telegramSettings,
+  sendNotif,
 }: {
   subject: Subject;
   onActivate: (name: string | null) => void;
+  telegramSettings: TelegramSettings | null;
+  sendNotif: (text: string) => Promise<void>;
 }) {
   const [showOptions, setShowOptions] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -222,6 +252,7 @@ function SubjectCard({
   const autoStartedRef = useRef(false);
   const autoCompleteRef = useRef(false);
   const autoCompleteByTimerRef = useRef(false);
+  const sentNotifsRef = useRef(new Set<string>());
 
   const isActive = subject.status === "active";
   const isPending = subject.status === "pending";
@@ -231,6 +262,16 @@ function SubjectCard({
   const isFixedTime = subject.timeMode === "fixed";
   const isToday = subject.date === format(new Date(), "yyyy-MM-dd");
 
+  const tgEnabled = !!(telegramSettings?.botToken && telegramSettings?.chatId);
+  const tgNotif = telegramSettings?.notifications;
+
+  function fireNotif(key: string, text: string) {
+    if (!tgEnabled) return;
+    if (sentNotifsRef.current.has(key)) return;
+    sentNotifsRef.current.add(key);
+    sendNotif(text);
+  }
+
   // Auto-start fixed-time subjects when their start time arrives
   useEffect(() => {
     if (!isPending || !isFixedTime || !subject.startTime || !isToday) return;
@@ -239,16 +280,34 @@ function SubjectCard({
       const mins = minutesUntil(subject.startTime!);
       setMinsUntilStart(mins);
 
+      // beforeStart notification
+      if (tgEnabled && tgNotif?.beforeStart) {
+        const threshold = tgNotif.beforeStartMinutes;
+        if (mins > 0 && mins <= threshold) {
+          fireNotif(
+            `beforeStart_${subject.id}`,
+            `⏰ <b>تنبيه قبل البدء!</b>\n\nمادة <b>${subject.name}</b> ستبدأ خلال ${mins} دقيقة (الساعة ${subject.startTime})`
+          );
+        }
+      }
+
       if (mins <= 0 && !autoStartedRef.current && !startMutation.isPending) {
         autoStartedRef.current = true;
         startMutation.mutate({ id: subject.id });
+        // onStart notification
+        if (tgEnabled && tgNotif?.onStart) {
+          fireNotif(
+            `onStart_${subject.id}`,
+            `📚 <b>بدأت المادة!</b>\n\nحان وقت مذاكرة <b>${subject.name}</b>\nوقت الانتهاء: ${subject.endTime ?? "غير محدد"}`
+          );
+        }
       }
     };
 
     check();
     const interval = setInterval(check, 15_000);
     return () => clearInterval(interval);
-  }, [isPending, isFixedTime, subject.startTime, isToday, subject.id]);
+  }, [isPending, isFixedTime, subject.startTime, isToday, subject.id, tgEnabled]);
 
   // Auto-complete when every lesson is checked
   useEffect(() => {
@@ -256,6 +315,9 @@ function SubjectCard({
     const allDone = lessons.every((l) => l.completed);
     if (allDone && !completeMutation.isPending) {
       autoCompleteRef.current = true;
+      if (tgEnabled && tgNotif?.onEnd) {
+        fireNotif(`onEnd_${subject.id}`, `✅ <b>انتهت المادة!</b>\n\nأكملت مذاكرة <b>${subject.name}</b> بنجاح 🎉`);
+      }
       completeMutation.mutate({ id: subject.id });
     }
   }, [isActive, lessons, subject.id]);
@@ -277,10 +339,36 @@ function SubjectCard({
       !completeMutation.isPending
     ) {
       autoCompleteByTimerRef.current = true;
+      const incompleteCount = lessons.filter((l) => !l.completed).length;
+      if (tgEnabled && tgNotif?.onEnd) {
+        fireNotif(`onEnd_${subject.id}`, `✅ <b>انتهت المادة!</b>\n\nانتهى وقت مذاكرة <b>${subject.name}</b>`);
+      }
+      if (tgEnabled && tgNotif?.onPostponed && incompleteCount > 0) {
+        fireNotif(
+          `onPostponed_${subject.id}`,
+          `📋 <b>لديك دروس مؤجلة!</b>\n\nتم تأجيل <b>${incompleteCount} درس</b> من مادة <b>${subject.name}</b> إلى قائمة المؤجلات`
+        );
+      }
       completeMutation.mutate({ id: subject.id });
       onActivate(null);
     }
   }, [isActive, isDurationPaused, simpleTimer.secondsLeft, simpleTimer.progress, subject.id]);
+
+  // beforeEnd notification
+  useEffect(() => {
+    if (!isActive || !tgEnabled || !tgNotif?.beforeEnd) return;
+    const threshold = (tgNotif.beforeEndMinutes ?? 5) * 60;
+    if (
+      simpleTimer.secondsLeft > 0 &&
+      simpleTimer.secondsLeft <= threshold &&
+      simpleTimer.secondsLeft > threshold - 30
+    ) {
+      fireNotif(
+        `beforeEnd_${subject.id}`,
+        `⏳ <b>تنبيه قبل الانتهاء!</b>\n\nمادة <b>${subject.name}</b> ستنتهي خلال ${tgNotif.beforeEndMinutes} دقيقة`
+      );
+    }
+  }, [isActive, simpleTimer.secondsLeft, tgEnabled]);
 
   return (
     <>
@@ -412,6 +500,9 @@ function SubjectCard({
                   onClick={() => {
                     startMutation.mutate({ id: subject.id });
                     onActivate(subject.name);
+                    if (tgEnabled && tgNotif?.onStart) {
+                      fireNotif(`onStart_${subject.id}`, `📚 <b>بدأت المادة!</b>\n\nحان وقت مذاكرة <b>${subject.name}</b>`);
+                    }
                   }}
                   disabled={startMutation.isPending}
                   className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-primary/80 to-accent/80 hover:from-primary hover:to-accent border-0 font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20"
@@ -491,6 +582,16 @@ function SubjectCard({
 
               <button
                 onClick={() => {
+                  const incompleteCount = lessons.filter((l) => !l.completed).length;
+                  if (tgEnabled && tgNotif?.onEnd) {
+                    fireNotif(`onEnd_${subject.id}`, `✅ <b>انتهت المادة!</b>\n\nأكملت مذاكرة <b>${subject.name}</b> 🎉`);
+                  }
+                  if (tgEnabled && tgNotif?.onPostponed && incompleteCount > 0) {
+                    fireNotif(
+                      `onPostponed_${subject.id}`,
+                      `📋 <b>لديك دروس مؤجلة!</b>\n\nتم تأجيل <b>${incompleteCount} درس</b> من مادة <b>${subject.name}</b> إلى قائمة المؤجلات`
+                    );
+                  }
                   completeMutation.mutate({ id: subject.id });
                   onActivate(null);
                 }}
