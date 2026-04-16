@@ -16,14 +16,21 @@ import {
   useStudyDeleteSubject,
   useStudyResetSubject,
 } from "@/hooks/use-study";
-import { useTimer, useLessonTimer, type LessonTimerState } from "@/hooks/use-timer";
+import { useTimer, useLessonTimer } from "@/hooks/use-timer";
 import { formatTimeMMSS, cn } from "@/lib/utils";
 import type { Subject, Lesson } from "@/lib/storage";
 import { useApplyTheme } from "@/hooks/use-subject-theme";
 import { ShareImportButtons, ImportPreviewModal } from "@/components/share-import-dialog";
 import { useImportFromUrl } from "@/hooks/use-import-from-url";
 import { TelegramBellButton, TelegramSetupDialog } from "@/components/telegram-setup-dialog";
-import { getTelegramSettings, sendTelegramMessage, type TelegramSettings } from "@/lib/telegram";
+import {
+  getTelegramSettings,
+  sendTelegramMessage,
+  cancelSubjectNotifications,
+  getScheduledNotifs,
+  buildPostponedMsg,
+  type TelegramSettings,
+} from "@/lib/telegram";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -80,64 +87,19 @@ function useFixedTimeTimer(startTime: string | null | undefined, endTime: string
   return state;
 }
 
-// ── Telegram message builder ───────────────────────────────────────────────────
-
+// Duration-mode Telegram message builders (for non-fixed subjects only)
 function tgSep() { return "━━━━━━━━━━━━━━━━━━"; }
 
-function buildBeforeStartMsg(subjectName: string, mins: number, startTime: string) {
-  return [
-    `🔔 <b>تذكير — مادة قادمة</b>`,
-    tgSep(),
-    `📚 <b>${subjectName}</b>`,
-    `⏱ تبدأ خلال <b>${mins} دقيقة</b>`,
-    `🕐 في الساعة <b>${startTime}</b>`,
-    tgSep(),
-    `<i>استعد للمذاكرة! 💪</i>`,
-  ].join("\n");
+function buildDurationOnStartMsg(subjectName: string) {
+  return [`📚 <b>بدأت المادة الآن!</b>`, tgSep(), `📖 <b>${subjectName}</b>`, tgSep(), `<i>ركّز وأنت قادر! 🌟</i>`].join("\n");
 }
 
-function buildOnStartMsg(subjectName: string, endTime?: string | null) {
-  const lines = [
-    `📚 <b>بدأت المادة الآن!</b>`,
-    tgSep(),
-    `📖 <b>${subjectName}</b>`,
-  ];
-  if (endTime) lines.push(`🕑 وقت الانتهاء: <b>${endTime}</b>`);
-  lines.push(tgSep(), `<i>ركّز وأنت قادر! 🌟</i>`);
-  return lines.join("\n");
+function buildDurationBeforeEndMsg(subjectName: string, mins: number) {
+  return [`⏳ <b>قارب الوقت على الانتهاء!</b>`, tgSep(), `📖 <b>${subjectName}</b>`, `⏱ تبقّى <b>${mins} دقيقة</b> فقط`, tgSep(), `<i>أكمل ما بدأت! 🎯</i>`].join("\n");
 }
 
-function buildBeforeEndMsg(subjectName: string, mins: number) {
-  return [
-    `⏳ <b>قارب الوقت على الانتهاء!</b>`,
-    tgSep(),
-    `📖 <b>${subjectName}</b>`,
-    `⏱ تبقّى <b>${mins} دقيقة</b> فقط`,
-    tgSep(),
-    `<i>أكمل ما بدأت! 🎯</i>`,
-  ].join("\n");
-}
-
-function buildOnEndMsg(subjectName: string) {
-  return [
-    `✅ <b>انتهت المادة!</b>`,
-    tgSep(),
-    `🎉 أتممت مذاكرة <b>${subjectName}</b> بنجاح`,
-    tgSep(),
-    `<i>عمل رائع، واصل التقدم! ⭐</i>`,
-  ].join("\n");
-}
-
-function buildPostponedMsg(subjectName: string, lessonNames: string[]) {
-  const lines = [
-    `📋 <b>دروس مؤجلة — ${subjectName}</b>`,
-    tgSep(),
-    `تم تأجيل <b>${lessonNames.length} ${lessonNames.length === 1 ? "درس" : "دروس"}</b> من اليوم:`,
-    ...lessonNames.map((n) => `• ${n}`),
-    tgSep(),
-    `<i>اجعل لها موعداً قريباً ⭐</i>`,
-  ];
-  return lines.join("\n");
+function buildDurationOnEndMsg(subjectName: string) {
+  return [`✅ <b>انتهت المادة!</b>`, tgSep(), `🎉 أتممت مذاكرة <b>${subjectName}</b> بنجاح`, tgSep(), `<i>عمل رائع، واصل التقدم! ⭐</i>`].join("\n");
 }
 
 // ── main page ──────────────────────────────────────────────────────────────────
@@ -328,41 +290,38 @@ function SubjectCard({
   const tgEnabled = !!(telegramSettings?.botToken && telegramSettings?.chatId);
   const tgNotif = telegramSettings?.notifications;
 
+  // Check if this subject has pre-scheduled Telegram messages (fixed-time subjects)
+  const hasPreScheduled = isFixedTime && getScheduledNotifs().some((r) => r.subjectId === subject.id);
+
   function fireNotif(key: string, text: string) {
     if (!tgEnabled) return;
+    // For fixed-time subjects with pre-scheduled messages, skip browser-side notifs
+    // (except onPostponed which can't be pre-scheduled)
+    if (hasPreScheduled && !key.startsWith("onPostponed")) return;
     if (sentNotifsRef.current.has(key)) return;
     sentNotifsRef.current.add(key);
     sendNotif(text);
   }
 
-  // Auto-start fixed-time
+  // Auto-start for fixed-time subjects (browser side — detects when time arrives)
   useEffect(() => {
     if (!isPending || !isFixedTime || !subject.startTime || !isToday) return;
     const check = () => {
       const mins = minutesUntil(subject.startTime!);
       setMinsUntilStart(mins);
 
-      if (tgEnabled && tgNotif?.beforeStart) {
-        const threshold = tgNotif.beforeStartMinutes;
-        if (mins > 0 && mins <= threshold) {
-          fireNotif(`beforeStart_${subject.id}`,
-            buildBeforeStartMsg(subject.name, mins, subject.startTime!));
-        }
-      }
-
       if (mins <= 0 && !autoStartedRef.current && !startMutation.isPending) {
         autoStartedRef.current = true;
         startMutation.mutate({ id: subject.id });
-        if (tgEnabled && tgNotif?.onStart) {
-          fireNotif(`onStart_${subject.id}`,
-            buildOnStartMsg(subject.name, subject.endTime));
-        }
       }
     };
     check();
     const interval = setInterval(check, 15_000);
     return () => clearInterval(interval);
-  }, [isPending, isFixedTime, subject.startTime, isToday, subject.id, tgEnabled]);
+  }, [isPending, isFixedTime, subject.startTime, isToday, subject.id]);
+
+  // Duration-mode: send onStart notification when subject starts (user pressed button)
+  // This is handled inline in the start button click handler below
 
   // Auto-complete when all lessons done
   useEffect(() => {
@@ -370,8 +329,8 @@ function SubjectCard({
     const allDone = lessons.every((l) => l.completed);
     if (allDone && !completeMutation.isPending) {
       autoCompleteRef.current = true;
-      if (tgEnabled && tgNotif?.onEnd) {
-        fireNotif(`onEnd_${subject.id}`, buildOnEndMsg(subject.name));
+      if (!isFixedTime && tgEnabled && tgNotif?.onEnd) {
+        fireNotif(`onEnd_${subject.id}`, buildDurationOnEndMsg(subject.name));
       }
       completeMutation.mutate({ id: subject.id });
     }
@@ -383,10 +342,10 @@ function SubjectCard({
   const isDurationPaused = !isFixedTime && durationTimer.isPaused;
   const lessonTimer = useLessonTimer(subject.id, lessons, totalDuration, isActive && !isFixedTime, isDurationPaused);
 
-  // Auto-complete when timer hits zero
+  // Duration-mode: auto-complete when timer hits zero
   useEffect(() => {
     if (
-      isActive && !isDurationPaused &&
+      isActive && !isFixedTime && !isDurationPaused &&
       simpleTimer.secondsLeft === 0 &&
       simpleTimer.progress >= 100 &&
       !autoCompleteByTimerRef.current &&
@@ -395,31 +354,57 @@ function SubjectCard({
       autoCompleteByTimerRef.current = true;
       const incomplete = lessons.filter((l) => !l.completed);
       if (tgEnabled && tgNotif?.onEnd) {
-        fireNotif(`onEnd_${subject.id}`, buildOnEndMsg(subject.name));
+        fireNotif(`onEnd_${subject.id}`, buildDurationOnEndMsg(subject.name));
       }
       if (tgEnabled && tgNotif?.onPostponed && incomplete.length > 0) {
-        fireNotif(`onPostponed_${subject.id}`,
-          buildPostponedMsg(subject.name, incomplete.map((l) => l.name)));
+        fireNotif(`onPostponed_${subject.id}`, buildPostponedMsg(subject.name, incomplete.map((l) => l.name)));
       }
       completeMutation.mutate({ id: subject.id });
       onActivate(null);
     }
-  }, [isActive, isDurationPaused, simpleTimer.secondsLeft, simpleTimer.progress, subject.id]);
+  }, [isActive, isFixedTime, isDurationPaused, simpleTimer.secondsLeft, simpleTimer.progress, subject.id]);
 
-  // Before end notification
+  // Duration-mode: before-end notification
   useEffect(() => {
-    if (!isActive || !tgEnabled || !tgNotif?.beforeEnd) return;
+    if (!isActive || isFixedTime || !tgEnabled || !tgNotif?.beforeEnd) return;
     const threshold = (tgNotif.beforeEndMinutes ?? 5) * 60;
     if (simpleTimer.secondsLeft > 0 &&
         simpleTimer.secondsLeft <= threshold &&
         simpleTimer.secondsLeft > threshold - 30) {
-      fireNotif(`beforeEnd_${subject.id}`,
-        buildBeforeEndMsg(subject.name, tgNotif.beforeEndMinutes ?? 5));
+      fireNotif(`beforeEnd_${subject.id}`, buildDurationBeforeEndMsg(subject.name, tgNotif.beforeEndMinutes ?? 5));
     }
-  }, [isActive, simpleTimer.secondsLeft, tgEnabled]);
+  }, [isActive, isFixedTime, simpleTimer.secondsLeft, tgEnabled]);
 
   const completedLessons = lessons.filter((l) => l.completed).length;
   const progressPercent = lessons.length > 0 ? (completedLessons / lessons.length) * 100 : 0;
+
+  const handleDelete = () => {
+    const s = getTelegramSettings();
+    deleteMutation.mutate({ id: subject.id }, {
+      onSuccess: () => {
+        if (s) cancelSubjectNotifications(subject.id, s.botToken, s.chatId);
+      }
+    });
+  };
+
+  const handleComplete = () => {
+    const incomplete = lessons.filter((l) => !l.completed);
+    const s = getTelegramSettings();
+
+    // Cancel any remaining scheduled notifications (onEnd, beforeEnd)
+    if (s) cancelSubjectNotifications(subject.id, s.botToken, s.chatId);
+
+    // For duration-mode: send onEnd immediately
+    if (!isFixedTime && tgEnabled && tgNotif?.onEnd) {
+      fireNotif(`onEnd_${subject.id}`, buildDurationOnEndMsg(subject.name));
+    }
+    // Always send postponed notification immediately (can't be pre-scheduled)
+    if (tgEnabled && tgNotif?.onPostponed && incomplete.length > 0) {
+      fireNotif(`onPostponed_${subject.id}`, buildPostponedMsg(subject.name, incomplete.map((l) => l.name)));
+    }
+    completeMutation.mutate({ id: subject.id });
+    onActivate(null);
+  };
 
   return (
     <>
@@ -455,7 +440,6 @@ function SubjectCard({
           {/* Card Header */}
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1 min-w-0">
-              {/* Status + time chips */}
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 {isActive ? (
                   <span
@@ -557,7 +541,7 @@ function SubjectCard({
             </div>
           )}
 
-          {/* ── Pending Actions ── */}
+          {/* ── Pending / Active ── */}
           <AnimatePresence mode="wait">
             {!isActive ? (
               <motion.div key="pending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -578,6 +562,11 @@ function SubjectCard({
                           {fmtCountdown(minsUntilStart)}
                         </p>
                         <p className="text-[10px] text-muted-foreground">عند الساعة {subject.startTime}</p>
+                        {hasPreScheduled && (
+                          <p className="text-[10px] mt-1 px-2 py-0.5 rounded-lg" style={{ background: "hsl(var(--accent) / 0.12)", color: "hsl(var(--accent))" }}>
+                            🗓 الإشعارات مجدولة على تيليجرام
+                          </p>
+                        )}
                       </>
                     ) : (
                       <p className="text-sm font-bold animate-pulse" style={{ color: "hsl(var(--primary))" }}>
@@ -587,19 +576,27 @@ function SubjectCard({
                   </div>
                 ) : isFixedTime && !isToday ? (
                   <div
-                    className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 text-muted-foreground text-sm"
+                    className="w-full py-3 rounded-2xl flex flex-col items-center justify-center gap-1 text-muted-foreground"
                     style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
                   >
-                    <Clock className="w-4 h-4" />
-                    يبدأ {subject.date} الساعة {subject.startTime}
+                    <span className="text-sm flex items-center gap-1.5">
+                      <Clock className="w-4 h-4" />
+                      يبدأ {subject.date} الساعة {subject.startTime}
+                    </span>
+                    {hasPreScheduled && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-lg" style={{ background: "hsl(var(--accent) / 0.1)", color: "hsl(var(--accent))" }}>
+                        🗓 الإشعارات مجدولة على تيليجرام
+                      </span>
+                    )}
                   </div>
                 ) : (
                   <button
                     onClick={() => {
                       startMutation.mutate({ id: subject.id });
                       onActivate(subject.name);
-                      if (tgEnabled && tgNotif?.onStart) {
-                        fireNotif(`onStart_${subject.id}`, buildOnStartMsg(subject.name));
+                      // Duration-mode: send onStart immediately
+                      if (!isFixedTime && tgEnabled && tgNotif?.onStart) {
+                        fireNotif(`onStart_${subject.id}`, buildDurationOnStartMsg(subject.name));
                       }
                     }}
                     disabled={startMutation.isPending}
@@ -622,16 +619,9 @@ function SubjectCard({
                 {/* Timer */}
                 <div
                   className="rounded-2xl p-4 flex flex-col items-center relative overflow-hidden"
-                  style={{
-                    background: "rgba(0,0,0,0.3)",
-                    border: "1px solid rgba(255,255,255,0.05)",
-                  }}
+                  style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.05)" }}
                 >
-                  {/* Progress bar at bottom */}
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full overflow-hidden"
-                    style={{ background: "rgba(255,255,255,0.06)" }}
-                  >
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
                     <motion.div
                       className="h-full"
                       style={{
@@ -641,13 +631,7 @@ function SubjectCard({
                       }}
                     />
                   </div>
-
-                  <div
-                    className={cn(
-                      "text-5xl font-mono font-light tracking-wider mb-1",
-                      isDurationPaused ? "text-white/40" : "text-white"
-                    )}
-                  >
+                  <div className={cn("text-5xl font-mono font-light tracking-wider mb-1", isDurationPaused ? "text-white/40" : "text-white")}>
                     {formatTimeMMSS(simpleTimer.secondsLeft)}
                   </div>
                   <p className="text-[11px] text-muted-foreground font-medium">
@@ -681,10 +665,7 @@ function SubjectCard({
                 )}
 
                 {/* Lessons */}
-                <div
-                  className="rounded-2xl p-3 space-y-1"
-                  style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.04)" }}
-                >
+                <div className="rounded-2xl p-3 space-y-1" style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.04)" }}>
                   <p className="text-[11px] font-bold text-muted-foreground px-1 pb-1">الدروس</p>
                   {lessons.map((lesson, idx) => (
                     <LessonRow
@@ -703,18 +684,7 @@ function SubjectCard({
 
                 {/* Complete button */}
                 <button
-                  onClick={() => {
-                    const incomplete = lessons.filter((l) => !l.completed);
-                    if (tgEnabled && tgNotif?.onEnd) {
-                      fireNotif(`onEnd_${subject.id}`, buildOnEndMsg(subject.name));
-                    }
-                    if (tgEnabled && tgNotif?.onPostponed && incomplete.length > 0) {
-                      fireNotif(`onPostponed_${subject.id}`,
-                        buildPostponedMsg(subject.name, incomplete.map((l) => l.name)));
-                    }
-                    completeMutation.mutate({ id: subject.id });
-                    onActivate(null);
-                  }}
+                  onClick={handleComplete}
                   disabled={completeMutation.isPending}
                   className="w-full py-3.5 rounded-2xl font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
                   style={{
@@ -734,7 +704,7 @@ function SubjectCard({
       <DeleteConfirmDialog
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
-        onConfirm={() => deleteMutation.mutate({ id: subject.id })}
+        onConfirm={handleDelete}
       />
     </>
   );
@@ -760,31 +730,14 @@ function LessonRow({
       disabled={toggleMutation.isPending}
       className={cn(
         "w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-start",
-        lesson.completed
-          ? "opacity-50"
-          : isCurrentLesson
-          ? "bg-white/5"
-          : "hover:bg-white/5",
+        lesson.completed ? "opacity-50" : isCurrentLesson ? "bg-white/5" : "hover:bg-white/5",
         toggleMutation.isPending && "opacity-50 cursor-not-allowed"
       )}
     >
-      {isCurrentLesson && (
-        <motion.div
-          className="absolute right-0 top-2 bottom-2 w-0.5 rounded-full"
-          style={{ background: "hsl(var(--primary))" }}
-          animate={{ opacity: [1, 0.3, 1] }}
-          transition={{ repeat: Infinity, duration: 1.5 }}
-        />
-      )}
-
       <div
         className={cn(
           "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
-          lesson.completed
-            ? "border-transparent"
-            : isCurrentLesson
-            ? "border-primary"
-            : "border-white/25"
+          lesson.completed ? "border-transparent" : isCurrentLesson ? "border-primary" : "border-white/25"
         )}
         style={lesson.completed ? { background: "hsl(var(--primary))" } : {}}
       >
@@ -823,6 +776,15 @@ function CompletedSubjectCard({ subject }: { subject: Subject }) {
   const lessons = subject.lessons || [];
   const completedCount = lessons.filter((l) => l.completed).length;
 
+  const handleDelete = () => {
+    const s = getTelegramSettings();
+    deleteMutation.mutate({ id: subject.id }, {
+      onSuccess: () => {
+        if (s) cancelSubjectNotifications(subject.id, s.botToken, s.chatId);
+      }
+    });
+  };
+
   return (
     <>
       <motion.div
@@ -831,15 +793,9 @@ function CompletedSubjectCard({ subject }: { subject: Subject }) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
         className="flex items-center gap-3 p-3.5 rounded-2xl"
-        style={{
-          background: "rgba(16, 185, 129, 0.05)",
-          border: "1px solid rgba(16, 185, 129, 0.15)",
-        }}
+        style={{ background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.15)" }}
       >
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: "rgba(16, 185, 129, 0.12)" }}
-        >
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(16, 185, 129, 0.12)" }}>
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
         </div>
         <div className="flex-1 min-w-0">
@@ -867,7 +823,7 @@ function CompletedSubjectCard({ subject }: { subject: Subject }) {
       <DeleteConfirmDialog
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
-        onConfirm={() => deleteMutation.mutate({ id: subject.id })}
+        onConfirm={handleDelete}
       />
     </>
   );

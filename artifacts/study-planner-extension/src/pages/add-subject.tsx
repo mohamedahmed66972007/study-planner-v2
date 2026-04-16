@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, Plus, Trash2, Clock, AlertCircle, Check } from "lucide-react";
+import { ChevronRight, Plus, Trash2, Clock, AlertCircle, Check, BellOff } from "lucide-react";
 import { useStudyCreateSubject, useStudyUpdateSubject, useStudySubject } from "@/hooks/use-study";
 import { calculateTotalMinutes, cn } from "@/lib/utils";
 import { useSubjectTheme, SUBJECT_THEMES } from "@/hooks/use-subject-theme";
@@ -14,6 +14,11 @@ import {
   TimePicker12,
   DatePickerRow,
 } from "@/components/time-date-pickers";
+import {
+  getTelegramSettings,
+  scheduleSubjectNotifications,
+  cancelSubjectNotifications,
+} from "@/lib/telegram";
 
 const SUBJECTS = [
   { name: "عربي", emoji: "📖" },
@@ -141,7 +146,9 @@ export default function AddSubject() {
   const remainingMinutes = totalAvailableMinutes - usedMinutes;
   const pad2 = (n: number) => String(n).padStart(2, "0");
 
-  const onSubmit = (data: FormValues) => {
+  const [scheduleInfo, setScheduleInfo] = useState<string | null>(null);
+
+  const onSubmit = async (data: FormValues) => {
     if (data.distributeTime && remainingMinutes < 0) {
       alert("الوقت الموزع يتجاوز الوقت الكلي المتاح!");
       return;
@@ -166,10 +173,37 @@ export default function AddSubject() {
       })),
     };
 
+    const handleSchedule = async (savedSubject: { id: number }) => {
+      const tgSettings = getTelegramSettings();
+      if (!tgSettings || data.timeMode !== "fixed" || !startTime) {
+        setLocation("/");
+        return;
+      }
+      // Cancel old scheduled notifications for this subject (in case of edit)
+      await cancelSubjectNotifications(savedSubject.id, tgSettings.botToken, tgSettings.chatId);
+      // Schedule new ones
+      const result = await scheduleSubjectNotifications(
+        { id: savedSubject.id, name: data.name, date: data.date, timeMode: "fixed", startTime, endTime },
+        tgSettings
+      );
+      if (result.scheduled > 0) {
+        setScheduleInfo(`تم جدولة ${result.scheduled} إشعار${result.skipped > 0 ? ` (تم تخطي ${result.skipped} لأن وقتها مضى)` : ""} على تيليجرام`);
+        setTimeout(() => setLocation("/"), 1800);
+      } else {
+        setLocation("/");
+      }
+    };
+
     if (isEditing && editId) {
-      updateMutation.mutate({ id: editId, data: payload }, { onSuccess: () => setLocation("/") });
+      updateMutation.mutate(
+        { id: editId, data: payload },
+        { onSuccess: () => handleSchedule({ id: editId }) }
+      );
     } else {
-      createMutation.mutate({ data: payload as any }, { onSuccess: () => setLocation("/") });
+      createMutation.mutate(
+        { data: payload as any },
+        { onSuccess: (savedSubject) => handleSchedule(savedSubject) }
+      );
     }
   };
 
@@ -475,17 +509,27 @@ export default function AddSubject() {
           </button>
         </div>
 
+        {/* ─── Schedule info ─── */}
+        {scheduleInfo && (
+          <div
+            className="w-full px-4 py-3 rounded-2xl text-sm font-bold text-center"
+            style={{ background: "hsl(var(--accent) / 0.15)", border: "1px solid hsl(var(--accent) / 0.3)", color: "hsl(var(--accent))" }}
+          >
+            🗓 {scheduleInfo}
+          </div>
+        )}
+
         {/* ─── Submit ─── */}
         <button
           type="submit"
-          disabled={isSaving}
+          disabled={isSaving || !!scheduleInfo}
           className="w-full py-4 rounded-2xl font-extrabold text-base text-white transition-all active:scale-[0.98] disabled:opacity-50"
           style={{
             background: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
             boxShadow: "0 6px 20px hsl(var(--primary) / 0.35)",
           }}
         >
-          {isSaving ? "جاري الحفظ..." : isEditing ? "حفظ التعديلات" : "إضافة المادة"}
+          {scheduleInfo ? "✅ تم الجدولة" : isSaving ? "جاري الحفظ..." : isEditing ? "حفظ التعديلات" : "إضافة المادة"}
         </button>
       </form>
     </div>
