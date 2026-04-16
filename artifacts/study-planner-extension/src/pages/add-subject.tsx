@@ -5,24 +5,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  ChevronRight,
-  Plus,
-  Trash2,
-  Clock,
-  AlertCircle,
-  Check
-} from "lucide-react";
+import { ChevronRight, Plus, Trash2, Clock, AlertCircle, Check } from "lucide-react";
 import { useStudyCreateSubject, useStudyUpdateSubject, useStudySubject } from "@/hooks/use-study";
 import { calculateTotalMinutes, cn } from "@/lib/utils";
 import { useSubjectTheme, SUBJECT_THEMES } from "@/hooks/use-subject-theme";
 import {
   NumberPicker,
-  AmPmToggle,
   TimePicker12,
   DatePickerRow,
-  to24h,
-  to12h,
 } from "@/components/time-date-pickers";
 
 const SUBJECTS = [
@@ -43,10 +33,8 @@ const formSchema = z.object({
   timeMode: z.enum(["fixed", "duration"]),
   startHour: z.number().min(0).max(23).optional(),
   startMinute: z.number().min(0).max(59).optional(),
-  startAmPm: z.enum(["am", "pm"]).optional(),
   endHour: z.number().min(0).max(23).optional(),
   endMinute: z.number().min(0).max(59).optional(),
-  endAmPm: z.enum(["am", "pm"]).optional(),
   durationHours: z.number().min(0).optional(),
   durationMinutes: z.number().min(0).max(59).optional(),
   distributeTime: z.boolean().default(false),
@@ -58,7 +46,6 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-// ─── Main Form ───────────────────────────────────────────────────────────────
 export default function AddSubject() {
   const [, setLocation] = useLocation();
   const params = useParams<{ id?: string }>();
@@ -87,11 +74,9 @@ export default function AddSubject() {
     },
   });
 
-  // Pre-fill form when editing an existing subject
   useEffect(() => {
     if (!isEditing || !existingSubject || prefilled) return;
     setPrefilled(true);
-
     const s = existingSubject;
     let dh = 1, dm = 0, sh = 8, sm = 0, eh = 9, em = 0;
     if (s.timeMode === "duration" && s.durationMinutes) {
@@ -129,15 +114,14 @@ export default function AddSubject() {
   const watchName = form.watch("name");
   const watchDate = form.watch("date");
 
-  // Apply color theme based on selected subject
   useSubjectTheme(watchName || null);
 
   useEffect(() => {
     let total = 0;
     if (watchTimeMode === "fixed") {
-      const startTotal = watchStartH * 60 + watchStartM;
-      const endTotal = watchEndH * 60 + watchEndM;
-      total = endTotal > startTotal ? endTotal - startTotal : 0;
+      const s = watchStartH * 60 + watchStartM;
+      const e = watchEndH * 60 + watchEndM;
+      total = e > s ? e - s : 0;
     } else {
       total = watchDurationH * 60 + watchDurationM;
     }
@@ -155,7 +139,6 @@ export default function AddSubject() {
 
   const usedMinutes = watchLessons.reduce((sum, l) => sum + (l.allocatedMinutes || 0), 0);
   const remainingMinutes = totalAvailableMinutes - usedMinutes;
-
   const pad2 = (n: number) => String(n).padStart(2, "0");
 
   const onSubmit = (data: FormValues) => {
@@ -163,19 +146,11 @@ export default function AddSubject() {
       alert("الوقت الموزع يتجاوز الوقت الكلي المتاح!");
       return;
     }
-
-    const startTime =
-      data.timeMode === "fixed"
-        ? `${pad2(data.startHour ?? 0)}:${pad2(data.startMinute ?? 0)}`
-        : null;
-    const endTime =
-      data.timeMode === "fixed"
-        ? `${pad2(data.endHour ?? 0)}:${pad2(data.endMinute ?? 0)}`
-        : null;
-    const durationMins =
-      data.timeMode === "duration"
-        ? (data.durationHours ?? 0) * 60 + (data.durationMinutes ?? 0)
-        : totalAvailableMinutes;
+    const startTime = data.timeMode === "fixed" ? `${pad2(data.startHour ?? 0)}:${pad2(data.startMinute ?? 0)}` : null;
+    const endTime = data.timeMode === "fixed" ? `${pad2(data.endHour ?? 0)}:${pad2(data.endMinute ?? 0)}` : null;
+    const durationMins = data.timeMode === "duration"
+      ? (data.durationHours ?? 0) * 60 + (data.durationMinutes ?? 0)
+      : totalAvailableMinutes;
 
     const payload = {
       name: data.name,
@@ -183,8 +158,7 @@ export default function AddSubject() {
       timeMode: data.timeMode,
       description: data.description || null,
       distributeTime: data.distributeTime,
-      startTime,
-      endTime,
+      startTime, endTime,
       durationMinutes: durationMins,
       lessons: data.lessons.map((l) => ({
         name: l.name,
@@ -193,39 +167,44 @@ export default function AddSubject() {
     };
 
     if (isEditing && editId) {
-      updateMutation.mutate(
-        { id: editId, data: payload },
-        { onSuccess: () => setLocation("/") }
-      );
+      updateMutation.mutate({ id: editId, data: payload }, { onSuccess: () => setLocation("/") });
     } else {
-      createMutation.mutate(
-        { data: payload as any },
-        { onSuccess: () => setLocation("/") }
-      );
+      createMutation.mutate({ data: payload as any }, { onSuccess: () => setLocation("/") });
     }
   };
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="flex flex-col h-full bg-background absolute inset-0 z-50 overflow-y-auto no-scrollbar pb-28">
+    <div className="flex flex-col h-full absolute inset-0 z-50 overflow-y-auto no-scrollbar pb-8"
+      style={{ background: "hsl(240 15% 5%)" }}>
+
       {/* Header */}
-      <header className="sticky top-0 z-20 glass-panel border-b border-white/10 px-4 py-4 flex items-center gap-4">
+      <header
+        className="sticky top-0 z-20 px-4 py-4 flex items-center gap-3"
+        style={{
+          background: "rgba(12,11,20,0.85)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
         <button
           onClick={() => setLocation("/")}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors"
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="w-5 h-5" />
         </button>
-        <h1 className="text-xl font-bold">{isEditing ? "تعديل المادة" : "إضافة مادة"}</h1>
+        <h1 className="text-lg font-extrabold">{isEditing ? "تعديل المادة" : "مادة جديدة"}</h1>
       </header>
 
-      <form onSubmit={form.handleSubmit(onSubmit)} className="p-5 flex flex-col gap-7">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="p-5 flex flex-col gap-6">
 
         {/* ─── Subject Selection ─── */}
-        <section className="space-y-3">
-          <label className="block text-sm font-bold text-muted-foreground">اختر المادة</label>
-          <div className="grid grid-cols-4 gap-2">
+        <div>
+          <p className="text-xs font-bold text-muted-foreground mb-3 tracking-wider">اختر المادة</p>
+          <div className="grid grid-cols-4 gap-2.5">
             {SUBJECTS.map((s) => {
               const isSelected = watchName === s.name;
               return (
@@ -233,78 +212,89 @@ export default function AddSubject() {
                   key={s.name}
                   type="button"
                   onClick={() => form.setValue("name", s.name, { shouldValidate: true })}
-                  whileTap={{ scale: 0.95 }}
-                  className={cn(
-                    "relative flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-2xl border transition-all",
-                    isSelected
-                      ? "bg-primary/20 border-primary shadow-lg shadow-primary/20"
-                      : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
-                  )}
+                  whileTap={{ scale: 0.93 }}
+                  className="relative flex flex-col items-center justify-center gap-1.5 py-3.5 px-1 rounded-2xl border transition-all"
+                  style={isSelected
+                    ? {
+                        background: "hsl(var(--primary) / 0.15)",
+                        border: "1px solid hsl(var(--primary) / 0.5)",
+                        boxShadow: "0 0 16px hsl(var(--primary) / 0.15)",
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.07)",
+                      }
+                  }
                 >
                   {isSelected && (
-                    <motion.div
-                      layoutId="subject-indicator"
-                      className="absolute inset-0 rounded-2xl bg-primary/10 border-2 border-primary"
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  <span className="text-xl relative z-10">{s.emoji}</span>
-                  <span
-                    className={cn(
-                      "text-[11px] font-bold relative z-10 transition-colors",
-                      isSelected ? "text-primary" : "text-muted-foreground"
-                    )}
-                  >
-                    {s.name}
-                  </span>
-                  {isSelected && (
-                    <div className="absolute top-1 left-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center z-10">
+                    <div
+                      className="absolute top-1.5 left-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                      style={{ background: "hsl(var(--primary))" }}
+                    >
                       <Check className="w-2.5 h-2.5 text-white" />
                     </div>
                   )}
+                  <span className="text-2xl">{s.emoji}</span>
+                  <span className={cn("text-[11px] font-bold", isSelected ? "text-primary" : "text-muted-foreground")}>
+                    {s.name}
+                  </span>
                 </motion.button>
               );
             })}
           </div>
           {form.formState.errors.name && (
-            <p className="text-destructive text-xs flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
+            <p className="text-destructive text-xs flex items-center gap-1 mt-2">
+              <AlertCircle className="w-3.5 h-3.5" />
               {form.formState.errors.name.message}
             </p>
           )}
-        </section>
+        </div>
 
-        {/* ─── Date Picker ─── */}
-        <section className="space-y-3">
-          <label className="block text-sm font-bold text-muted-foreground">التاريخ</label>
-          <DatePickerRow
-            value={watchDate}
-            onChange={(v) => form.setValue("date", v, { shouldValidate: true })}
-          />
-        </section>
+        {/* ─── Date ─── */}
+        <div>
+          <p className="text-xs font-bold text-muted-foreground mb-3 tracking-wider">التاريخ</p>
+          <DatePickerRow value={watchDate} onChange={(v) => form.setValue("date", v, { shouldValidate: true })} />
+        </div>
 
         {/* ─── Description ─── */}
-        <section className="space-y-3">
-          <label className="block text-sm font-bold text-muted-foreground">
-            ملاحظات <span className="text-muted-foreground/50 font-normal">(اختياري)</span>
-          </label>
+        <div>
+          <p className="text-xs font-bold text-muted-foreground mb-3 tracking-wider">
+            ملاحظات <span className="font-normal opacity-60">(اختياري)</span>
+          </p>
           <textarea
             {...form.register("description")}
-            placeholder=""
-            rows={3}
-            className="w-full bg-black/30 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-muted-foreground/40 outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 resize-none transition-colors"
+            rows={2}
+            placeholder="أضف ملاحظة..."
+            className="w-full rounded-2xl px-4 py-3 text-sm text-white placeholder:text-muted-foreground/40 outline-none resize-none transition-all"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+            onFocus={(e) => (e.target.style.borderColor = "hsl(var(--primary) / 0.5)")}
+            onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
           />
-        </section>
+        </div>
 
         {/* ─── Time Settings ─── */}
-        <section className="bg-black/30 border border-white/5 rounded-3xl p-5 space-y-5">
-          <div className="flex items-center gap-2 mb-1">
-            <Clock className="w-5 h-5 text-primary" />
-            <h3 className="font-bold">نظام الوقت</h3>
+        <div
+          className="rounded-3xl p-5 space-y-5"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <div className="flex items-center gap-2">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ background: "hsl(var(--primary) / 0.15)" }}
+            >
+              <Clock className="w-4 h-4 text-primary" />
+            </div>
+            <p className="font-extrabold">نظام الوقت</p>
           </div>
 
           {/* Mode toggle */}
-          <div className="flex p-1 bg-black/40 rounded-xl">
+          <div
+            className="flex p-1 rounded-xl"
+            style={{ background: "rgba(0,0,0,0.3)" }}
+          >
             {(["fixed", "duration"] as const).map((mode) => (
               <button
                 key={mode}
@@ -312,42 +302,38 @@ export default function AddSubject() {
                 onClick={() => form.setValue("timeMode", mode)}
                 className={cn(
                   "flex-1 py-2.5 rounded-lg text-sm font-bold transition-all",
-                  watchTimeMode === mode
-                    ? "bg-white/10 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-white"
+                  watchTimeMode === mode ? "text-white" : "text-muted-foreground hover:text-white"
                 )}
+                style={watchTimeMode === mode ? {
+                  background: "rgba(255,255,255,0.1)",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                } : {}}
               >
-                {mode === "fixed" ? "وقت ثابت" : "مدة زمنية"}
+                {mode === "fixed" ? "⏰ وقت ثابت" : "⏱ مدة زمنية"}
               </button>
             ))}
           </div>
 
           <AnimatePresence mode="wait">
             {watchTimeMode === "fixed" ? (
-              <motion.div
-                key="fixed"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                className="space-y-4"
-              >
+              <motion.div key="fixed" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="space-y-3">
                 <TimePicker12
-                  hour24={watchStartH}
-                  minute={watchStartM}
+                  hour24={watchStartH} minute={watchStartM}
                   onHourChange={(h) => form.setValue("startHour", h)}
                   onMinuteChange={(m) => form.setValue("startMinute", m)}
                   label="من"
                 />
                 <TimePicker12
-                  hour24={watchEndH}
-                  minute={watchEndM}
+                  hour24={watchEndH} minute={watchEndM}
                   onHourChange={(h) => form.setValue("endHour", h)}
                   onMinuteChange={(m) => form.setValue("endMinute", m)}
                   label="إلى"
                 />
-
                 {totalAvailableMinutes > 0 && (
-                  <div className="text-center py-2 px-4 bg-primary/10 border border-primary/20 rounded-xl">
+                  <div
+                    className="text-center py-2 px-4 rounded-xl"
+                    style={{ background: "hsl(var(--primary) / 0.1)", border: "1px solid hsl(var(--primary) / 0.2)" }}
+                  >
                     <span className="text-sm font-bold text-primary">
                       الإجمالي:{" "}
                       {totalAvailableMinutes >= 60
@@ -358,110 +344,95 @@ export default function AddSubject() {
                 )}
               </motion.div>
             ) : (
-              <motion.div
-                key="duration"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                className="bg-black/30 rounded-2xl p-4 border border-white/5"
-              >
-                <p className="text-xs text-muted-foreground font-bold mb-4 text-center">المدة الزمنية</p>
-                <div className="flex items-center justify-center gap-4">
-                  <NumberPicker
-                    value={watchDurationH}
-                    onChange={(v) => form.setValue("durationHours", v)}
-                    min={0}
-                    max={12}
-                    label="ساعة"
-                    pad={false}
-                  />
-                  <div className="flex flex-col gap-1 pb-6">
-                    <div className="w-2 h-2 rounded-full bg-primary/60" />
-                    <div className="w-2 h-2 rounded-full bg-primary/60" />
+              <motion.div key="duration" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+                <div
+                  className="rounded-2xl p-4"
+                  style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.05)" }}
+                >
+                  <p className="text-xs text-muted-foreground font-bold mb-4 text-center">المدة الزمنية</p>
+                  <div className="flex items-center justify-center gap-4">
+                    <NumberPicker value={watchDurationH} onChange={(v) => form.setValue("durationHours", v)} min={0} max={12} label="ساعة" pad={false} />
+                    <div className="flex flex-col gap-1.5 pb-6">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: "hsl(var(--primary) / 0.5)" }} />
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: "hsl(var(--primary) / 0.5)" }} />
+                    </div>
+                    <NumberPicker value={watchDurationM} onChange={(v) => form.setValue("durationMinutes", v)} min={0} max={59} label="دقيقة" />
                   </div>
-                  <NumberPicker
-                    value={watchDurationM}
-                    onChange={(v) => form.setValue("durationMinutes", v)}
-                    min={0}
-                    max={59}
-                    label="دقيقة"
-                  />
+                  {totalAvailableMinutes > 0 && (
+                    <p className="text-center text-sm font-bold mt-3" style={{ color: "hsl(var(--primary))" }}>
+                      {totalAvailableMinutes >= 60
+                        ? `${Math.floor(totalAvailableMinutes / 60)} ساعة${totalAvailableMinutes % 60 > 0 ? ` و ${totalAvailableMinutes % 60} دقيقة` : ""}`
+                        : `${totalAvailableMinutes} دقيقة`}
+                    </p>
+                  )}
                 </div>
-                {totalAvailableMinutes > 0 && (
-                  <p className="text-center text-xs text-primary mt-4 font-bold">
-                    {totalAvailableMinutes >= 60
-                      ? `${Math.floor(totalAvailableMinutes / 60)} ساعة ${totalAvailableMinutes % 60 > 0 ? `و ${totalAvailableMinutes % 60} دقيقة` : ""}`
-                      : `${totalAvailableMinutes} دقيقة`}
-                  </p>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Distribute Time toggle */}
-          <div className="pt-4 border-t border-white/10 flex items-center justify-between">
+          {/* Distribute toggle */}
+          <div className="pt-1 border-t border-white/5 flex items-center justify-between">
             <div>
-              <span className="font-bold text-sm">تخصيص الوقت للدروس</span>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                {totalAvailableMinutes > 0
-                  ? `توزيع ${totalAvailableMinutes} دقيقة على الدروس`
-                  : "حدد الوقت أولاً"}
+              <p className="font-bold text-sm">تخصيص الوقت للدروس</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {totalAvailableMinutes > 0 ? `توزيع ${totalAvailableMinutes} دقيقة على الدروس` : "حدد الوقت أولاً"}
               </p>
             </div>
             <button
               type="button"
               onClick={handleToggleDistribute}
-              className={cn(
-                "w-12 h-6 rounded-full transition-all duration-300 relative shrink-0",
-                watchDistribute ? "bg-primary shadow-primary/30 shadow-md" : "bg-white/20",
-                totalAvailableMinutes <= 0 && "opacity-50 cursor-not-allowed"
-              )}
+              className="w-12 h-6 rounded-full relative transition-all duration-300 shrink-0"
+              style={{
+                background: watchDistribute ? "hsl(var(--primary))" : "rgba(255,255,255,0.15)",
+                opacity: totalAvailableMinutes <= 0 ? 0.4 : 1,
+                boxShadow: watchDistribute ? "0 2px 8px hsl(var(--primary) / 0.4)" : "none",
+              }}
             >
               <motion.div
                 animate={{ x: watchDistribute ? 24 : 0 }}
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                className="w-4 h-4 rounded-full bg-white absolute top-1 left-1"
+                className="w-4 h-4 rounded-full bg-white absolute top-1 left-1 shadow"
               />
             </button>
           </div>
-        </section>
+        </div>
 
         {/* ─── Lessons ─── */}
-        <section className="space-y-4">
-          <div className="flex justify-between items-end">
-            <label className="block text-sm font-bold text-muted-foreground">الدروس</label>
+        <div>
+          <div className="flex justify-between items-center mb-3">
+            <p className="text-xs font-bold text-muted-foreground tracking-wider">الدروس</p>
             {watchDistribute && totalAvailableMinutes > 0 && (
-              <div
-                className={cn(
-                  "text-xs font-bold px-3 py-1 rounded-lg transition-colors",
-                  remainingMinutes < 0
-                    ? "bg-destructive/20 text-destructive border border-destructive/30"
-                    : remainingMinutes === 0
-                    ? "bg-primary/20 text-primary border border-primary/30"
-                    : "bg-white/5 text-muted-foreground"
-                )}
+              <span
+                className={cn("text-xs font-bold px-2.5 py-1 rounded-lg", remainingMinutes < 0 ? "text-destructive" : remainingMinutes === 0 ? "text-primary" : "text-muted-foreground")}
+                style={{
+                  background: remainingMinutes < 0 ? "hsl(var(--destructive) / 0.12)" : remainingMinutes === 0 ? "hsl(var(--primary) / 0.12)" : "rgba(255,255,255,0.05)",
+                  border: remainingMinutes < 0 ? "1px solid hsl(var(--destructive) / 0.25)" : remainingMinutes === 0 ? "1px solid hsl(var(--primary) / 0.25)" : "1px solid rgba(255,255,255,0.08)",
+                }}
               >
                 متبقي: {remainingMinutes} د
-              </div>
+              </span>
             )}
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <AnimatePresence>
               {fields.map((field, index) => (
                 <motion.div
                   key={field.id}
-                  initial={{ opacity: 0, x: 20 }}
+                  initial={{ opacity: 0, x: 16 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
+                  exit={{ opacity: 0, x: -16 }}
                   className="flex items-center gap-2"
                 >
-                  <div className="flex-1 flex items-center gap-2 bg-black/30 border border-white/10 rounded-2xl px-4 py-3">
-                    <span className="text-muted-foreground text-sm w-5 shrink-0">{index + 1}.</span>
+                  <div
+                    className="flex-1 flex items-center gap-2 px-4 py-3 rounded-2xl"
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+                  >
+                    <span className="text-muted-foreground text-xs w-5 shrink-0 font-bold">{index + 1}</span>
                     <input
                       {...form.register(`lessons.${index}.name`)}
                       placeholder="اسم الدرس..."
-                      className="flex-1 bg-transparent text-sm text-white placeholder:text-muted-foreground/50 outline-none"
+                      className="flex-1 bg-transparent text-sm text-white placeholder:text-muted-foreground/40 outline-none"
                     />
                     {watchDistribute && (
                       <input
@@ -469,7 +440,12 @@ export default function AddSubject() {
                         {...form.register(`lessons.${index}.allocatedMinutes`, { valueAsNumber: true })}
                         placeholder="د"
                         min={1}
-                        className="w-12 bg-black/40 border border-white/10 rounded-lg text-center text-xs text-primary font-bold py-1 outline-none focus:ring-1 focus:ring-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                        className="w-12 rounded-lg text-center text-xs font-bold py-1 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none transition-all"
+                        style={{
+                          background: "rgba(0,0,0,0.3)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          color: "hsl(var(--primary))",
+                        }}
                       />
                     )}
                   </div>
@@ -477,7 +453,8 @@ export default function AddSubject() {
                     <button
                       type="button"
                       onClick={() => remove(index)}
-                      className="w-9 h-9 flex items-center justify-center rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                      className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors"
+                      style={{ background: "hsl(var(--destructive) / 0.1)", color: "hsl(var(--destructive))" }}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -490,18 +467,23 @@ export default function AddSubject() {
           <button
             type="button"
             onClick={() => append({ name: "", allocatedMinutes: null })}
-            className="w-full py-3 rounded-2xl border border-dashed border-white/20 text-muted-foreground hover:text-white hover:border-white/40 transition-all text-sm font-medium flex items-center justify-center gap-2"
+            className="mt-2.5 w-full py-3 rounded-2xl text-sm font-medium flex items-center justify-center gap-2 transition-all text-muted-foreground hover:text-white"
+            style={{ border: "1.5px dashed rgba(255,255,255,0.15)" }}
           >
             <Plus className="w-4 h-4" />
             إضافة درس
           </button>
-        </section>
+        </div>
 
         {/* ─── Submit ─── */}
         <button
           type="submit"
           disabled={isSaving}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-accent font-bold text-lg transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-primary/30 disabled:opacity-50"
+          className="w-full py-4 rounded-2xl font-extrabold text-base text-white transition-all active:scale-[0.98] disabled:opacity-50"
+          style={{
+            background: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
+            boxShadow: "0 6px 20px hsl(var(--primary) / 0.35)",
+          }}
         >
           {isSaving ? "جاري الحفظ..." : isEditing ? "حفظ التعديلات" : "إضافة المادة"}
         </button>

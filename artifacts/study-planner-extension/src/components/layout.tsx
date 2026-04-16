@@ -1,57 +1,90 @@
 import { ReactNode } from "react";
 import { Link, useRoute } from "wouter";
-import { Calendar, Clock, Plus } from "lucide-react";
+import { CalendarDays, Clock3, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStudyPostponed } from "@/hooks/use-study";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
-    <div dir="rtl" className="h-dvh w-full flex justify-center bg-black/90 p-0 sm:p-4 md:p-8">
-      <div className="w-full max-w-[420px] h-full bg-background/50 backdrop-blur-3xl sm:rounded-[2.5rem] shadow-2xl shadow-primary/10 overflow-hidden flex flex-col relative border-x border-t border-white/5 sm:border-white/10">
+    <div
+      dir="rtl"
+      className="h-dvh w-full flex justify-center"
+      style={{ background: "hsl(240 15% 5%)" }}
+    >
+      <div className="w-full max-w-[420px] h-full relative flex flex-col overflow-hidden">
+        {/* Background blobs */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div
+            className="absolute -top-32 -right-32 w-72 h-72 rounded-full opacity-10"
+            style={{ background: "radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%)" }}
+          />
+          <div
+            className="absolute -bottom-24 -left-24 w-64 h-64 rounded-full opacity-8"
+            style={{ background: "radial-gradient(circle, hsl(var(--accent)) 0%, transparent 70%)" }}
+          />
+        </div>
 
-        {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto no-scrollbar pb-24" style={{ overscrollBehavior: 'none' }}>
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto no-scrollbar pb-28 relative z-10">
           {children}
         </main>
 
         {/* Bottom Navigation */}
-        <nav className="absolute bottom-0 w-full glass-panel border-t border-white/10 rounded-t-3xl sm:rounded-b-[2.5rem] px-6 pt-4 flex justify-between items-center z-50" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-          <NavItem href="/" icon={<Calendar className="w-5 h-5" />} label="الجدول" />
-          
-          <div className="relative -top-8">
-            <Link 
-              href="/add" 
-              className="flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-tr from-primary to-accent shadow-lg shadow-primary/40 text-white hover:scale-105 active:scale-95 transition-all duration-300"
-            >
-              <Plus className="w-7 h-7" />
-            </Link>
-          </div>
-          
-          <PostponedNavItem />
-        </nav>
+        <div className="absolute bottom-0 inset-x-0 z-50 flex justify-center pb-4 px-4">
+          <BottomNav />
+        </div>
       </div>
     </div>
   );
 }
 
+function BottomNav() {
+  return (
+    <nav
+      className="flex items-center gap-2 px-3 py-2 rounded-[2rem]"
+      style={{
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.09)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+      }}
+    >
+      <NavItem href="/" icon={<CalendarDays className="w-5 h-5" />} label="الجدول" />
+
+      {/* Add button */}
+      <Link href="/add">
+        <div
+          className="mx-1 w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 active:scale-90"
+          style={{
+            background: "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)",
+            boxShadow: "0 4px 16px hsl(var(--primary) / 0.45)",
+          }}
+        >
+          <Plus className="w-6 h-6 text-white" strokeWidth={2.5} />
+        </div>
+      </Link>
+
+      <PostponedNavItem />
+    </nav>
+  );
+}
+
 function NavItem({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
   const [isActive] = useRoute(href);
-  
+
   return (
-    <Link 
-      href={href} 
-      className={cn(
-        "flex flex-col items-center gap-1.5 transition-colors duration-300",
-        isActive ? "text-primary" : "text-muted-foreground hover:text-white"
-      )}
-    >
-      <div className={cn(
-        "p-2 rounded-2xl transition-all duration-300",
-        isActive ? "bg-primary/20" : "bg-transparent"
-      )}>
+    <Link href={href}>
+      <div
+        className={cn(
+          "flex flex-col items-center gap-1 px-5 py-2 rounded-2xl transition-all duration-200",
+          isActive ? "text-primary" : "text-muted-foreground hover:text-white"
+        )}
+        style={isActive ? { background: "hsl(var(--primary) / 0.12)" } : {}}
+      >
         {icon}
+        <span className="text-[10px] font-bold tracking-wide">{label}</span>
       </div>
-      <span className="text-[10px] font-medium">{label}</span>
     </Link>
   );
 }
@@ -62,25 +95,25 @@ function PostponedNavItem() {
   const count = postponed?.length || 0;
 
   return (
-    <Link 
-      href="/postponed" 
-      className={cn(
-        "flex flex-col items-center gap-1.5 transition-colors duration-300 relative",
-        isActive ? "text-accent" : "text-muted-foreground hover:text-white"
-      )}
-    >
-      <div className={cn(
-        "p-2 rounded-2xl transition-all duration-300",
-        isActive ? "bg-accent/20" : "bg-transparent"
-      )}>
-        <Clock className="w-5 h-5" />
+    <Link href="/postponed">
+      <div
+        className={cn(
+          "relative flex flex-col items-center gap-1 px-5 py-2 rounded-2xl transition-all duration-200",
+          isActive ? "text-accent" : "text-muted-foreground hover:text-white"
+        )}
+        style={isActive ? { background: "hsl(var(--accent) / 0.12)" } : {}}
+      >
+        <Clock3 className="w-5 h-5" />
         {count > 0 && (
-          <span className="absolute top-0 right-1 w-4 h-4 bg-destructive text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-md animate-in zoom-in">
-            {count}
+          <span
+            className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[9px] font-black text-white px-1"
+            style={{ background: "hsl(var(--destructive))" }}
+          >
+            {count > 9 ? "9+" : count}
           </span>
         )}
+        <span className="text-[10px] font-bold tracking-wide">المؤجلة</span>
       </div>
-      <span className="text-[10px] font-medium">المؤجلة</span>
     </Link>
   );
 }

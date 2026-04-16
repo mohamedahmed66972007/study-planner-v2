@@ -62,33 +62,33 @@
 }
 
 :root {
-  --background: 260 40% 6%;
-  --foreground: 210 40% 98%;
-  
-  --card: 260 30% 12%;
-  --card-foreground: 210 40% 98%;
-  
-  --popover: 260 30% 12%;
-  --popover-foreground: 210 40% 98%;
-  
-  --primary: 270 85% 65%;
+  --background: 240 15% 5%;
+  --foreground: 220 20% 96%;
+
+  --card: 240 12% 9%;
+  --card-foreground: 220 20% 96%;
+
+  --popover: 240 12% 9%;
+  --popover-foreground: 220 20% 96%;
+
+  --primary: 258 90% 66%;
   --primary-foreground: 0 0% 100%;
-  
-  --secondary: 260 20% 20%;
-  --secondary-foreground: 210 40% 98%;
-  
-  --muted: 260 20% 20%;
-  --muted-foreground: 250 15% 65%;
-  
-  --accent: 320 85% 60%;
+
+  --secondary: 240 10% 14%;
+  --secondary-foreground: 220 20% 96%;
+
+  --muted: 240 10% 14%;
+  --muted-foreground: 240 8% 55%;
+
+  --accent: 174 80% 48%;
   --accent-foreground: 0 0% 100%;
-  
-  --destructive: 350 80% 60%;
+
+  --destructive: 355 78% 58%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 260 20% 25%;
-  --input: 260 20% 25%;
-  --ring: 270 85% 65%;
+  --border: 240 10% 16%;
+  --input: 240 10% 16%;
+  --ring: 258 90% 66%;
 
   --radius: 1rem;
 }
@@ -102,31 +102,80 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased overflow-x-hidden selection:bg-primary/30;
-    background-attachment: fixed;
     overscroll-behavior: none;
   }
-  
-  /* Hide scrollbar for Chrome, Safari and Opera */
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  /* Hide scrollbar for IE, Edge and Firefox */
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
     overscroll-behavior: none;
   }
 }
 
 @layer utilities {
   .glass-panel {
-    @apply bg-card/60 backdrop-blur-xl border border-white/5 shadow-2xl shadow-black/50;
-    transition: background-color 0.6s ease, box-shadow 0.6s ease, border-color 0.4s ease;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+    transition: background 0.4s ease, box-shadow 0.4s ease, border-color 0.3s ease;
   }
+
+  .card-surface {
+    background: hsl(var(--card));
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 2px 16px rgba(0,0,0,0.3);
+  }
+
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent;
   }
+
+  .text-gradient-soft {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(var(--primary-rgb, 139, 92, 246), 0.3);
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary to-accent text-white font-bold rounded-2xl
+    transition-all duration-200 active:scale-[0.97] hover:opacity-90
+    shadow-lg;
+    box-shadow: 0 4px 16px rgba(var(--primary-rgb, 139, 92, 246), 0.35);
+  }
+
+  .btn-ghost {
+    @apply bg-white/5 border border-white/8 text-muted-foreground hover:text-white hover:bg-white/10
+    rounded-2xl transition-all duration-200 active:scale-[0.97];
+  }
+
+  .input-field {
+    @apply w-full bg-white/5 border border-white/8 rounded-xl px-4 py-3 text-white text-sm
+    placeholder:text-muted-foreground/40 outline-none
+    focus:border-primary/50 focus:bg-white/8 transition-all duration-200;
+  }
+
+  .section-card {
+    background: hsl(var(--card));
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 1.25rem;
+    padding: 1.25rem;
+  }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full shrink-0;
+  }
+
   .theme-transition {
-    transition: background-color 0.6s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.6s ease;
+    transition: background-color 0.5s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.5s ease;
+  }
+
+  .active-card-glow {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4), 0 8px 32px hsl(var(--primary) / 0.15);
   }
 }
