@@ -16,18 +16,19 @@ export interface TelegramSettings {
   notifications: TelegramNotificationSettings;
 }
 
-// Tracks scheduled message IDs per subject so we can cancel them later
-export interface ScheduledNotifRecord {
+/** A locally-scheduled pending notification (stored in localStorage) */
+export interface PendingNotif {
+  id: string;             // unique key: `${subjectId}_${type}`
   subjectId: number;
-  messageId: number;
-  type: string; // "beforeStart" | "onStart" | "beforeEnd" | "onEnd"
-  scheduledAt: number; // Unix seconds
+  type: "beforeStart" | "onStart" | "beforeEnd" | "onEnd";
+  scheduledAt: number;    // Unix ms
+  text: string;
 }
 
 // ── Storage keys ───────────────────────────────────────────────────────────────
 
 const TELEGRAM_KEY = "telegram_settings";
-const SCHEDULED_KEY = "telegram_scheduled_notifs";
+const PENDING_KEY  = "telegram_pending_notifs";
 
 // ── Default settings ───────────────────────────────────────────────────────────
 
@@ -63,26 +64,35 @@ export function clearTelegramSettings(): void {
   localStorage.removeItem(TELEGRAM_KEY);
 }
 
-// ── Scheduled notifications storage ───────────────────────────────────────────
+// ── Pending notifications storage ──────────────────────────────────────────────
 
-export function getScheduledNotifs(): ScheduledNotifRecord[] {
+export function getPendingNotifs(): PendingNotif[] {
   try {
-    const raw = localStorage.getItem(SCHEDULED_KEY);
-    return raw ? (JSON.parse(raw) as ScheduledNotifRecord[]) : [];
+    const raw = localStorage.getItem(PENDING_KEY);
+    return raw ? (JSON.parse(raw) as PendingNotif[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveScheduledNotifs(records: ScheduledNotifRecord[]): void {
-  localStorage.setItem(SCHEDULED_KEY, JSON.stringify(records));
+function savePendingNotifs(items: PendingNotif[]): void {
+  localStorage.setItem(PENDING_KEY, JSON.stringify(items));
 }
 
-// ── Telegram API helpers ───────────────────────────────────────────────────────
+/** Remove all pending notifications for a given subject */
+export function cancelSubjectNotifications(subjectId: number): void {
+  const filtered = getPendingNotifs().filter((n) => n.subjectId !== subjectId);
+  savePendingNotifs(filtered);
+}
 
-/**
- * Send a message immediately via Telegram Bot API.
- */
+/** Mark a set of notifications as sent (remove them) */
+export function markNotifsSent(ids: string[]): void {
+  const filtered = getPendingNotifs().filter((n) => !ids.includes(n.id));
+  savePendingNotifs(filtered);
+}
+
+// ── Telegram API ───────────────────────────────────────────────────────────────
+
 export async function sendTelegramMessage(
   botToken: string,
   chatId: string,
@@ -103,75 +113,7 @@ export async function sendTelegramMessage(
   }
 }
 
-/**
- * Schedule a Telegram message at a specific Unix timestamp (seconds).
- * Returns the message_id if successful, or null on failure.
- * Requires: scheduleDate must be at least 10 seconds in the future.
- */
-export async function scheduleTelegramMessage(
-  botToken: string,
-  chatId: string,
-  text: string,
-  scheduleDate: number  // Unix timestamp in seconds
-): Promise<number | null> {
-  const now = Math.floor(Date.now() / 1000);
-  // Telegram requires at least 10 seconds in the future
-  if (scheduleDate <= now + 10) return null;
-  // At most 366 days in the future
-  if (scheduleDate > now + 366 * 24 * 3600) return null;
-
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${botToken}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: "HTML",
-          schedule_date: scheduleDate,
-        }),
-      }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.result?.message_id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Delete (cancel) a previously scheduled Telegram message.
- */
-export async function deleteTelegramMessage(
-  botToken: string,
-  chatId: string,
-  messageId: number
-): Promise<boolean> {
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${botToken}/deleteMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
-      }
-    );
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-// ── Scheduler ─────────────────────────────────────────────────────────────────
-
-function toUnixTimestamp(date: string, time: string): number {
-  const [y, m, d] = date.split("-").map(Number);
-  const [h, min] = time.split(":").map(Number);
-  return Math.floor(new Date(y, m - 1, d, h, min, 0, 0).getTime() / 1000);
-}
+// ── Message builders ───────────────────────────────────────────────────────────
 
 function tgSep() { return "━━━━━━━━━━━━━━━━━━"; }
 
@@ -219,6 +161,20 @@ function buildOnEndMsg(subjectName: string) {
   ].join("\n");
 }
 
+export function buildPostponedMsg(subjectName: string, lessonNames: string[]) {
+  const count = lessonNames.length;
+  return [
+    `📋 <b>دروس مؤجلة — ${subjectName}</b>`,
+    tgSep(),
+    `تم تأجيل <b>${count} ${count === 1 ? "درس" : "دروس"}</b> من اليوم:`,
+    ...lessonNames.map((n) => `• ${n}`),
+    tgSep(),
+    `<i>اجعل لها موعداً قريباً ⭐</i>`,
+  ].join("\n");
+}
+
+// ── Scheduling ─────────────────────────────────────────────────────────────────
+
 export interface SubjectForScheduling {
   id: number;
   name: string;
@@ -229,119 +185,87 @@ export interface SubjectForScheduling {
 }
 
 /**
- * Schedule all Telegram notifications for a subject with a fixed time.
- * Replaces any previously scheduled notifications for this subject.
- * Returns the number of successfully scheduled messages.
+ * Store locally-scheduled notifications for a fixed-time subject.
+ * These are checked by useNotificationScheduler and sent at the right time.
+ * Returns the number of notifications that were queued (future only).
  */
-export async function scheduleSubjectNotifications(
+export function scheduleSubjectNotifications(
   subject: SubjectForScheduling,
   settings: TelegramSettings
-): Promise<{ scheduled: number; skipped: number }> {
-  // Only fixed-time subjects can be scheduled in advance
-  if (subject.timeMode !== "fixed" || !subject.startTime) {
-    return { scheduled: 0, skipped: 0 };
-  }
+): number {
+  if (subject.timeMode !== "fixed" || !subject.startTime) return 0;
 
-  // First cancel any existing scheduled notifications for this subject
-  await cancelSubjectNotifications(subject.id, settings.botToken, settings.chatId);
+  // Remove any old notifications for this subject first
+  cancelSubjectNotifications(subject.id);
 
   const n = settings.notifications;
-  const { botToken, chatId } = settings;
-  const startTs = toUnixTimestamp(subject.date, subject.startTime);
-  const endTs = subject.endTime ? toUnixTimestamp(subject.date, subject.endTime) : null;
-  const now = Math.floor(Date.now() / 1000);
+  const [sy, sm, sd] = subject.date.split("-").map(Number);
+  const [sh, smin] = subject.startTime.split(":").map(Number);
+  const startMs = new Date(sy, sm - 1, sd, sh, smin, 0, 0).getTime();
 
-  const tasks: Array<{ type: string; ts: number; text: string }> = [];
+  let endMs: number | null = null;
+  if (subject.endTime) {
+    const [eh, emin] = subject.endTime.split(":").map(Number);
+    endMs = new Date(sy, sm - 1, sd, eh, emin, 0, 0).getTime();
+  }
+
+  const now = Date.now();
+  const tasks: PendingNotif[] = [];
 
   if (n.beforeStart) {
-    tasks.push({
-      type: "beforeStart",
-      ts: startTs - n.beforeStartMinutes * 60,
-      text: buildBeforeStartMsg(subject.name, n.beforeStartMinutes, subject.startTime),
-    });
+    const ts = startMs - n.beforeStartMinutes * 60 * 1000;
+    if (ts > now) {
+      tasks.push({
+        id: `${subject.id}_beforeStart`,
+        subjectId: subject.id,
+        type: "beforeStart",
+        scheduledAt: ts,
+        text: buildBeforeStartMsg(subject.name, n.beforeStartMinutes, subject.startTime),
+      });
+    }
   }
   if (n.onStart) {
-    tasks.push({
-      type: "onStart",
-      ts: startTs,
-      text: buildOnStartMsg(subject.name, subject.endTime),
-    });
-  }
-  if (n.beforeEnd && endTs) {
-    tasks.push({
-      type: "beforeEnd",
-      ts: endTs - n.beforeEndMinutes * 60,
-      text: buildBeforeEndMsg(subject.name, n.beforeEndMinutes),
-    });
-  }
-  if (n.onEnd && endTs) {
-    tasks.push({
-      type: "onEnd",
-      ts: endTs,
-      text: buildOnEndMsg(subject.name),
-    });
-  }
-
-  let scheduled = 0;
-  let skipped = 0;
-  const newRecords: ScheduledNotifRecord[] = [];
-
-  for (const task of tasks) {
-    // Skip if in the past or within 10 seconds
-    if (task.ts <= now + 10) {
-      skipped++;
-      continue;
+    if (startMs > now) {
+      tasks.push({
+        id: `${subject.id}_onStart`,
+        subjectId: subject.id,
+        type: "onStart",
+        scheduledAt: startMs,
+        text: buildOnStartMsg(subject.name, subject.endTime),
+      });
     }
-    const msgId = await scheduleTelegramMessage(botToken, chatId, task.text, task.ts);
-    if (msgId !== null) {
-      newRecords.push({ subjectId: subject.id, messageId: msgId, type: task.type, scheduledAt: task.ts });
-      scheduled++;
-    } else {
-      skipped++;
+  }
+  if (n.beforeEnd && endMs !== null) {
+    const ts = endMs - n.beforeEndMinutes * 60 * 1000;
+    if (ts > now) {
+      tasks.push({
+        id: `${subject.id}_beforeEnd`,
+        subjectId: subject.id,
+        type: "beforeEnd",
+        scheduledAt: ts,
+        text: buildBeforeEndMsg(subject.name, n.beforeEndMinutes),
+      });
+    }
+  }
+  if (n.onEnd && endMs !== null) {
+    if (endMs > now) {
+      tasks.push({
+        id: `${subject.id}_onEnd`,
+        subjectId: subject.id,
+        type: "onEnd",
+        scheduledAt: endMs,
+        text: buildOnEndMsg(subject.name),
+      });
     }
   }
 
-  // Persist the new records
-  const existing = getScheduledNotifs().filter((r) => r.subjectId !== subject.id);
-  saveScheduledNotifs([...existing, ...newRecords]);
+  const existing = getPendingNotifs().filter((r) => r.subjectId !== subject.id);
+  savePendingNotifs([...existing, ...tasks]);
 
-  return { scheduled, skipped };
+  return tasks.length;
 }
 
-/**
- * Cancel all scheduled Telegram notifications for a subject.
- * Pass botToken/chatId if you want to also delete them from Telegram servers.
- */
-export async function cancelSubjectNotifications(
-  subjectId: number,
-  botToken?: string,
-  chatId?: string
-): Promise<void> {
-  const all = getScheduledNotifs();
-  const toCancel = all.filter((r) => r.subjectId === subjectId);
-  const remaining = all.filter((r) => r.subjectId !== subjectId);
-
-  // Try to delete from Telegram if credentials are provided
-  if (botToken && chatId && toCancel.length > 0) {
-    await Promise.allSettled(
-      toCancel.map((r) => deleteTelegramMessage(botToken, chatId, r.messageId))
-    );
-  }
-
-  saveScheduledNotifs(remaining);
-}
-
-/**
- * Send an immediate Telegram notification for postponed lessons.
- */
-export function buildPostponedMsg(subjectName: string, lessonNames: string[]) {
-  const lines = [
-    `📋 <b>دروس مؤجلة — ${subjectName}</b>`,
-    tgSep(),
-    `تم تأجيل <b>${lessonNames.length} ${lessonNames.length === 1 ? "درس" : "دروس"}</b> من اليوم:`,
-    ...lessonNames.map((n) => `• ${n}`),
-    tgSep(),
-    `<i>اجعل لها موعداً قريباً ⭐</i>`,
-  ];
-  return lines.join("\n");
+/** Check how many locally-scheduled notifs exist for a subject */
+export function getSubjectScheduledCount(subjectId: number): number {
+  return getPendingNotifs().filter((n) => n.subjectId === subjectId).length;
 }

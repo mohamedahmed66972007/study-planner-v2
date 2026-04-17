@@ -148,7 +148,7 @@ export default function AddSubject() {
 
   const [scheduleInfo, setScheduleInfo] = useState<string | null>(null);
 
-  const onSubmit = async (data: FormValues) => {
+  const onSubmit = (data: FormValues) => {
     if (data.distributeTime && remainingMinutes < 0) {
       alert("الوقت الموزع يتجاوز الوقت الكلي المتاح!");
       return;
@@ -173,22 +173,22 @@ export default function AddSubject() {
       })),
     };
 
-    const handleSchedule = async (savedSubject: { id: number }) => {
+    const handleSchedule = (savedSubject: { id: number }) => {
       const tgSettings = getTelegramSettings();
       if (!tgSettings || data.timeMode !== "fixed" || !startTime) {
         setLocation("/");
         return;
       }
-      // Cancel old scheduled notifications for this subject (in case of edit)
-      await cancelSubjectNotifications(savedSubject.id, tgSettings.botToken, tgSettings.chatId);
-      // Schedule new ones
-      const result = await scheduleSubjectNotifications(
+      // Cancel any old pending notifications for this subject (edit case)
+      cancelSubjectNotifications(savedSubject.id);
+      // Store new locally-scheduled notifications (sent when app is open at the right time)
+      const count = scheduleSubjectNotifications(
         { id: savedSubject.id, name: data.name, date: data.date, timeMode: "fixed", startTime, endTime },
         tgSettings
       );
-      if (result.scheduled > 0) {
-        setScheduleInfo(`تم جدولة ${result.scheduled} إشعار${result.skipped > 0 ? ` (تم تخطي ${result.skipped} لأن وقتها مضى)` : ""} على تيليجرام`);
-        setTimeout(() => setLocation("/"), 1800);
+      if (count > 0) {
+        setScheduleInfo(`سيتم إرسال ${count} إشعار في وقتها عند فتح التطبيق`);
+        setTimeout(() => setLocation("/"), 1600);
       } else {
         setLocation("/");
       }
@@ -210,7 +210,7 @@ export default function AddSubject() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="flex flex-col h-full absolute inset-0 z-50 overflow-y-auto no-scrollbar pb-8"
+    <div className="flex flex-col h-full absolute inset-0 z-50 overflow-y-auto no-scrollbar pb-36"
       style={{ background: "hsl(240 15% 5%)" }}>
 
       {/* Header */}

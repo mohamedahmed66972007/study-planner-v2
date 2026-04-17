@@ -96,13 +96,25 @@
 @layer base {
   * {
     @apply border-border;
+    box-sizing: border-box;
   }
-  html {
+  html, body {
     overscroll-behavior: none;
+    margin: 0;
+    padding: 0;
+    /* Full-height fallback chain for mobile browsers */
+    height: 100%;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased overflow-x-hidden selection:bg-primary/30;
-    overscroll-behavior: none;
+  }
+
+  /* App root fills the full dynamic viewport height on mobile.
+     CSS cascade: browser picks the last valid value. */
+  .app-root {
+    height: 100vh;          /* baseline fallback */
+    height: 100svh;         /* small viewport height (iOS Safari ≥ 15.4) */
+    height: 100dvh;         /* dynamic viewport height — best for mobile */
   }
 
   .no-scrollbar::-webkit-scrollbar { display: none; }

@@ -8,12 +8,15 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div
       dir="rtl"
-      className="h-dvh w-full flex justify-center"
+      className="app-root w-full flex justify-center"
       style={{ background: "hsl(240 15% 5%)" }}
     >
-      <div className="w-full max-w-[420px] h-full relative flex flex-col overflow-hidden">
+      <div
+        className="w-full max-w-[420px] relative flex flex-col"
+        style={{ height: "100%", overflow: "hidden" }}
+      >
         {/* Background blobs */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" style={{ zIndex: 0 }}>
           <div
             className="absolute -top-32 -right-32 w-72 h-72 rounded-full opacity-10"
             style={{ background: "radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%)" }}
@@ -24,13 +27,22 @@ export function Layout({ children }: { children: ReactNode }) {
           />
         </div>
 
-        {/* Main Content */}
-        <main className="flex-1 overflow-y-auto no-scrollbar pb-28 relative z-10">
+        {/* Main Content — no z-index stacking context so fixed dialogs (z-[200]) render above nav */}
+        <main
+          className="flex-1 overflow-y-auto no-scrollbar pb-28"
+          style={{ position: "relative" }}
+        >
           {children}
         </main>
 
-        {/* Bottom Navigation */}
-        <div className="absolute bottom-0 inset-x-0 z-50 flex justify-center pb-4 px-4">
+        {/* Bottom Navigation — z-40 so fixed dialogs (z-[200]) appear above it */}
+        <div
+          className="absolute bottom-0 inset-x-0 flex justify-center px-4"
+          style={{
+            zIndex: 40,
+            paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+          }}
+        >
           <BottomNav />
         </div>
       </div>

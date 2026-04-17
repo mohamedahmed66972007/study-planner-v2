@@ -27,10 +27,11 @@ import {
   getTelegramSettings,
   sendTelegramMessage,
   cancelSubjectNotifications,
-  getScheduledNotifs,
+  getSubjectScheduledCount,
   buildPostponedMsg,
   type TelegramSettings,
 } from "@/lib/telegram";
+import { useNotificationScheduler } from "@/hooks/use-notification-scheduler";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,9 @@ export default function Home() {
     if (!s?.botToken || !s?.chatId) return;
     await sendTelegramMessage(s.botToken, s.chatId, text);
   }, []);
+
+  // Run background scheduler — checks every 20s and fires due notifications
+  useNotificationScheduler(telegramSettings);
 
   const handleTelegramClose = useCallback(() => {
     setTelegramOpen(false);
@@ -291,7 +295,7 @@ function SubjectCard({
   const tgNotif = telegramSettings?.notifications;
 
   // Check if this subject has pre-scheduled Telegram messages (fixed-time subjects)
-  const hasPreScheduled = isFixedTime && getScheduledNotifs().some((r) => r.subjectId === subject.id);
+  const hasPreScheduled = isFixedTime && getSubjectScheduledCount(subject.id) > 0;
 
   function fireNotif(key: string, text: string) {
     if (!tgEnabled) return;
@@ -379,20 +383,18 @@ function SubjectCard({
   const progressPercent = lessons.length > 0 ? (completedLessons / lessons.length) * 100 : 0;
 
   const handleDelete = () => {
-    const s = getTelegramSettings();
     deleteMutation.mutate({ id: subject.id }, {
       onSuccess: () => {
-        if (s) cancelSubjectNotifications(subject.id, s.botToken, s.chatId);
+        cancelSubjectNotifications(subject.id);
       }
     });
   };
 
   const handleComplete = () => {
     const incomplete = lessons.filter((l) => !l.completed);
-    const s = getTelegramSettings();
 
-    // Cancel any remaining scheduled notifications (onEnd, beforeEnd)
-    if (s) cancelSubjectNotifications(subject.id, s.botToken, s.chatId);
+    // Cancel any remaining pending notifications for this subject
+    cancelSubjectNotifications(subject.id);
 
     // For duration-mode: send onEnd immediately
     if (!isFixedTime && tgEnabled && tgNotif?.onEnd) {
@@ -777,10 +779,9 @@ function CompletedSubjectCard({ subject }: { subject: Subject }) {
   const completedCount = lessons.filter((l) => l.completed).length;
 
   const handleDelete = () => {
-    const s = getTelegramSettings();
     deleteMutation.mutate({ id: subject.id }, {
       onSuccess: () => {
-        if (s) cancelSubjectNotifications(subject.id, s.botToken, s.chatId);
+        cancelSubjectNotifications(subject.id);
       }
     });
   };
